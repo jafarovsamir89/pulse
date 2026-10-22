@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0c1021" />
+  <title>PULSE — UX-концепт</title>
+  <style>
+    :root {color-scheme:dark; --bg:#0c1021; --panel:#171d32; --panel2:#222941; --line:#313a55; --text:#f5f4ff; --muted:#a6aec8; --accent:#9982ff; --mint:#72d4bd}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 80% -10%,#35245f,transparent 45%),var(--bg);color:var(--text);font:15px/1.5 Inter,system-ui,Arial,sans-serif;min-height:100vh}
+    .shell{max-width:1120px;margin:auto;padding:28px 22px 80px}.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:52px;gap:16px}.brand{font-weight:900;letter-spacing:.13em;font-size:20px}.brand span{color:var(--accent)}.chip{border:1px solid var(--line);border-radius:100px;padding:7px 12px;color:var(--muted);font-size:12px}.chip em{color:var(--mint);font-style:normal}
+    .hero{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center;margin-bottom:50px}h1{font-size:clamp(38px,6vw,76px);line-height:1.05;letter-spacing:-.05em;margin:15px 0 20px}.gradient{background:linear-gradient(100deg,#dfd6ff,#a193ff,#77d8d0);color:transparent;background-clip:text}p{color:var(--muted);line-height:1.7}.eyebrow{text-transform:uppercase;letter-spacing:.13em;color:var(--mint);font-size:12px;font-weight:800}.orb{width:min(100%,365px);aspect-ratio:1;justify-self:center;border-radius:50%;position:relative;background:radial-gradient(circle at 37% 30%,#d7c9ff 0%,#806ff4 26%,#49388d 65%,#282442 100%);box-shadow:0 0 65px #5843bb77,0 0 145px #5843bb45,inset -30px -26px 56px #201d4b;display:grid;place-items:center}.orb:before,.orb:after{content:"";position:absolute;inset:-24px;border:1px solid #867ed744;border-radius:50%}.orb:after{inset:-45px}.orb b{font-size:33px;letter-spacing:.17em;text-shadow:0 4px 16px #151235}
+    .card{background:linear-gradient(145deg,#1b223a,#13182b);border:1px solid var(--line);padding:25px;border-radius:24px;box-shadow:0 15px 50px #0003}.main{display:grid;grid-template-columns:1.05fr .95fr;gap:18px}.card h2{margin:0 0 7px;font-size:23px}.subtitle{font-size:13px;margin:0 0 24px}label.title{display:block;font-size:12px;font-weight:750;color:#b8c0dd;text-transform:uppercase;letter-spacing:.08em;margin:22px 0 12px}.choices{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.choice{background:#252c46;color:var(--text);border:1px solid #38415d;border-radius:14px;text-align:left;padding:15px;cursor:pointer;font:inherit;transition:.15s}.choice:hover{transform:translateY(-1px);border-color:#aaa0ff}.choice[aria-pressed=true]{border-color:var(--accent);background:#35305a;box-shadow:inset 0 0 0 1px #9982ff}.choice small{display:block;color:var(--muted);margin-top:3px}select{width:100%;background:#252c46;color:var(--text);border:1px solid var(--line);padding:14px;border-radius:12px;font:inherit}.btn{display:inline-flex;justify-content:center;align-items:center;gap:8px;border:0;border-radius:12px;padding:15px 20px;background:linear-gradient(110deg,#a292ff,#786be7);color:#0d1021;font-weight:800;font-size:14px;cursor:pointer}.btn.secondary{background:#2d3451;color:var(--text);border:1px solid #475171}.wide{width:100%;margin-top:22px}.muted{color:var(--muted);font-size:12px}.status{margin-top:18px;color:var(--mint);font-size:13px;min-height:21px}.event{border:1px solid var(--line);padding:16px;border-radius:16px;margin:12px 0;display:flex;align-items:center;justify-content:space-between;gap:10px;background:#20283f}.event strong{display:block}.event small{color:var(--muted)}.badge{background:#293d45;color:#90e5cb;border-radius:50px;font-size:11px;padding:5px 10px;white-space:nowrap}.banner{margin-top:28px;padding:17px;border:1px solid #665c91;border-radius:14px;color:#d9d3ff;background:#30295075;font-size:13px}.footer{padding:35px 0;color:#818ca8;font-size:12px;text-align:center}
+    dialog{max-width:500px;width:calc(100% - 30px);background:#161b2e;color:var(--text);border:1px solid #7264bb;border-radius:22px;padding:25px;box-shadow:0 25px 100px #000a}dialog::backdrop{background:#000a}dialog h3{margin-top:0;font-size:24px}.demo-person{display:flex;align-items:center;gap:7px;margin:15px 0;flex-wrap:wrap}.dot{width:31px;height:31px;border-radius:50%;background:#695ac8;border:2px solid #a195eb}.dot:nth-child(2){background:#528ea1}.dot:nth-child(3){background:#9f6576}.dot:nth-child(4){background:#719277}.mini{background:#262d45;border:1px solid #404b68;border-radius:13px;padding:14px;margin-top:14px}.actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}a{color:#bbaaff}
+    @media(max-width:800px){.hero,.main{grid-template-columns:1fr}.hero{gap:28px}.orb{width:220px}.top{margin-bottom:32px}.main{gap:16px}}
+  </style>
+</head>
+<body>
+<main class="shell">
+  <header class="top"><div class="brand"><span>●</span> PULSE</div><div class="chip"><em>●</em> ОФЛАЙН-ПРОТОТИП · НЕТ РЕАЛЬНЫХ ПОЛЬЗОВАТЕЛЕЙ</div></header>
+  <section class="hero"><div><div class="eyebrow">Без пафоса. Без гонки за лайками.</div><h1>У вечера есть <span class="gradient">компания.</span></h1><p>Не нужно красивое фото, дорогие подарки или тысяча подписчиков. Выбери настроение — и представь, как мог бы выглядеть твой вечер с людьми, которым тоже хочется общения.</p><div class="chip" style="display:inline-block">18+ · Псевдонимы · Добровольное общение</div></div><div class="orb" aria-hidden="true"><b>PULSE</b></div></section>
+  <section class="main" aria-label="Планирование вечера">
+    <div class="card">
+      <h2>Как проведём вечер?</h2><p class="subtitle">Настрой параметры и посмотри демонстрацию будущего подбора.</p>
+      <label class="title" id="topic-label">Настроение</label>
+      <div class="choices" role="group" aria-labelledby="topic-label" id="topics">
+        <button class="choice" data-topic="Разговоры" aria-pressed="true">☕ Разговоры<small>Просто поболтать</small></button>
+        <button class="choice" data-topic="Игры" aria-pressed="false">🎲 Игры<small>Весёлые вопросы</small></button>
+        <button class="choice" data-topic="Вечеринка" aria-pressed="false">🎧 Вечеринка<small>Голос и атмосфера</small></button>
+        <button class="choice" data-topic="Тихий вечер" aria-pressed="false">🌙 Тихий вечер<small>Без необходимости говорить</small></button>
+      </div>
+      <label class="title" for="mode">Формат компании</label>
+      <select id="mode"><option value="open">Открытая — кому удобно общаться</option><option value="balanced">Сбалансированная — по возможности 50/50</option></select>
+      <label class="title" for="slot">Время</label>
+      <select id="slot"><option>Сегодня, 20:00</option><option selected>Сегодня, 21:00</option><option>Сегодня, 22:00</option><option>Завтра, 20:00</option></select>
+      <button class="btn wide" id="preview">Посмотреть сценарий вечера →</button>
+      <p class="status" id="status" role="status">Демо: сервер не подключён, все участники вымышленные.</p>
+    </div>
+    <div class="card"><h2>Предстоящие вечера</h2><p class="subtitle">Примеры будущих форматов. <strong>Это не работающий онлайн-каталог.</strong></p>
+      <div class="event"><div><strong>☕ Пятница без планов</strong><small>Разговоры · 21:00 · 4–6 участников</small></div><span class="badge">ДЕМО</span></div>
+      <div class="event"><div><strong>🎲 Неловкие вопросы</strong><small>Игры · 20:00 · без камеры</small></div><span class="badge">ДЕМО</span></div>
+      <div class="event"><div><strong>🌙 Просто посидим</strong><small>Тихий вечер · 22:00</small></div><span class="badge">ДЕМО</span></div>
+      <div class="event"><div><strong>🎧 Музыкальная кухня</strong><small>Разговоры о музыке · 21:00</small></div><span class="badge">ДЕМО</span></div>
+      <div class="banner"><strong>Наше правило:</strong> общаться можно анонимно для других. Нет рейтинга внешности и платных сообщений. Реальные голосовые и городские встречи появятся только после разработки и проверки безопасности.</div>
+    </div>
+  </section>
+  <div class="footer">PULSE · Pre-MVP UX concept · 21.10.2026 · Это демонстрация интерфейса, без регистрации, чата и связи с людьми</div>
+</main>
+<dialog id="modal" aria-labelledby="modal-title"><h3 id="modal-title">Твой вечер · демо</h3><p id="summary"></p><div class="demo-person" aria-label="Вымышленные примеры аватаров"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="muted">4 вымышленных участника, не онлайн</span></div><div class="mini"><strong>Первый импульс</strong><p id="prompt" style="margin:7px 0 0"></p></div><div class="actions"><button class="btn secondary" id="next-prompt">Другой вопрос</button><button class="btn" id="close-modal">Закрыть</button></div><p class="muted">В настоящем PULSE здесь будет подтверждённая сервером комната. Сейчас это интерактивная модель.</p></dialog>
+<script>
+  const prompts=['Каким был бы твой идеальный свободный вечер без телефона?', 'Назови одну песню, которая всегда поднимает настроение.', 'Если бы завтра был выходной, что бы ты сделал первым?', 'Какую смешную вещь ты недавно узнал?', 'Чему тебя могут научить друзья, а ты — их?'];
+  let topic='Разговоры',idx=0;
+  document.querySelectorAll('[data-topic]').forEach(btn=>btn.addEventListener('click',()=>{topic=btn.dataset.topic;document.querySelectorAll('[data-topic]').forEach(b=>b.setAttribute('aria-pressed',String(b===btn)));}));
+  const modal=document.getElementById('modal');
+  const setPrompt=()=>{document.getElementById('prompt').textContent=prompts[idx%prompts.length];idx++};
+  document.getElementById('preview').addEventListener('click',()=>{document.getElementById('summary').textContent=`Тема: ${topic}. Формат: ${document.getElementById('mode').value==='balanced'?'добровольный 50/50 при наличии участников':'открытая компания'}. Слот: ${document.getElementById('slot').value}.`;setPrompt();modal.showModal();});
+  document.getElementById('next-prompt').addEventListener('click',setPrompt);
+  document.getElementById('close-modal').addEventListener('click',()=>modal.close());
+</script>
+</body></html>

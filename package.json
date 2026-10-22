@@ -1,0 +1,11 @@
+{
+  "name": "pulse-planning-bootstrap",
+  "private": true,
+  "version": "0.1.0",
+  "description": "PULSE product docs, offline UX demo, and research-only matching spike (NOT production app)",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test spikes/matchmaker.test.mjs",
+    "demo:match": "node spikes/demo.mjs"
+  }
+}
