@@ -1,6 +1,6 @@
-# PULSE — техническая архитектура / design draft
+# PULSE — техническая архитектура / design draft (с addendum v0.2)
 
-**Дата:** 21.10.2026. Целевая архитектура, **не описание уже работающего сервиса**. Основной принцип: минимальный монолит, собственные правила подбора/безопасности и управляемый RTC для голоса.
+**Дата:** 21.10.2026. **Важное уточнение:** ниже исторические event-first схемы дополнены актуальным Text Match-first v0.2 в конце. Читай addendum вместе с PRD v0.2. Целевая архитектура, **не описание уже работающего сервиса**. Основной принцип: минимальный монолит, собственные правила подбора/безопасности и управляемый RTC для голоса.
 
 ## 1. Технологии и причины выбора
 
@@ -144,3 +144,46 @@ room.moderate    { roomId, targetId, action } -> privileged + audit
 - Staging с тестовыми accounts; synthetic users **только в тестовой среде**, никогда под видом людей в live.
 - Feature flags: `voice_enabled`, `balanced_mode`, `contacts_enabled`, `offline_events_enabled`.
 - Эксплуатация: backups + restore drill, health checks, alerting on report SLA, deploy rollback.
+
+
+---
+
+## v0.2 ADDENDUM — быстрый парный Text Match (21.10.2026)
+
+**Актуальный источник продукта — PRD v0.2.** Выше в историческом черновике Event-first модель описывает будущие **Party Rooms**, но **первой сквозной вертикалью теперь является Text Match 1:1**. Не реализовывать календарь как условие первого матча.
+
+### Дополнения к доменной модели
+
+- `MatchQueue(id,userId,language,moodNullable,joinedAt,expiresAt,state,idempotencyKey)`.
+- `MatchOffer(id,userAId,userBId,expiresAt,aAcceptedAtNullable,bAcceptedAtNullable,status)`.
+- `MatchSession(id,offerId,startedAt,endedAt,status)`, строго два разных активных участника.
+- `MatchMember(sessionId,userId,joinedAt,leftAt)`; unique active session per user (DB constraint).
+- `MatchMessage(id,sessionId,authorId,text,createdAt,expiresAt,moderationState)`.
+- `ContactEdge(userAId,userBId,consentAAtNullable,consentBAtNullable,status)`; DM только при двух согласиях, revoke/block атомарно закрывает возможность отправки.
+- `UserBlock` распространяется на matching, match chat и Contacts/DM.
+
+### Дополнительные endpoints (draft)
+
+```http
+POST   /v1/text-match/queue
+GET    /v1/text-match/queue/current
+DELETE /v1/text-match/queue/current
+POST   /v1/text-match/offers/{offerId}/accept
+POST   /v1/text-match/offers/{offerId}/decline
+GET    /v1/text-match/sessions/current
+POST   /v1/text-match/sessions/{id}/leave
+POST   /v1/text-match/sessions/{id}/contact-vote
+GET    /v1/contacts
+POST   /v1/contacts/{id}/messages
+POST   /v1/contacts/{id}/revoke
+```
+
+Chat Socket.IO: `match.join`, `match.send`, `match.leave`, `match.offer`, `match.accepted`, `match.failed` — server derives identity from auth. Offer acceptance and queue removal must be transaction-safe and idempotent. Explicitly test Redis expiry vs persistent DB state, race on dual clients, disconnect and ban/block mid-session. No store-policy workaround claims.
+
+### Component decomposition and sequence
+
+`Identity` -> `TextMatchService` (DB reservation + Redis TTL) -> `MatchChatGateway` -> `Contacts` -> `TrustSafety`. Party Rooms remain separate `Event/Room` subsystem; VoiceMatch and RTC introduced in P1. Reduce coupling by shared `ActiveSessionGuard`, `PolicyService`, and `ModerationAudit`.
+
+### Prototype alignment
+
+`prototype/index.html` reflects the old Event-first idea. It is not a working chat. Replace in Sprint 1 with an original Text Match-first UI; no fake users or fabricated counts.

@@ -1,43 +1,34 @@
-# Первое задание для Codex — PULSE / Sprint 1
+# PULSE v0.2 — первое задание агенту Codex (Sprint 1)
 
-> Скопировать весь блок задания агенту с доступом к репозиторию `https://github.com/jafarovsamir89/pulse`. Не считать документы доказательством реализованного функционала.
+> **Это актуальное задание вместо v0.1.** Репозиторий: https://github.com/jafarovsamir89/pulse. Прочитай README, PRD, LITMATCH_FEATURE_MATRIX, ARCHITECTURE, SAFETY_PRIVACY, DECISIONS, TODO. Задача — сделать **близкую функциональную механику Text Match из Litmatch**, но с авторским кодом, дизайном и со встроенной защитой. Production-сервиса пока нет.
 
-## Роль и задача
+## Роль
+Ты staff full-stack engineer + security lead. Не генерируй декоративную демоверсию вместо серверной системы. Реализуй **одну настоящую end-to-end вертикаль** в локальном/staging окружении: регистрация/18+ → псевдоним → кнопка Text Match → подбор двух реальных test accounts → чат → завершение → взаимное сохранение → DM только по mutual → block/report.
 
-Ты — staff engineer / security-minded tech lead. Работай по PRD, SAFETY_PRIVACY, ARCHITECTURE, TODO и DECISIONS. Цель первого спринта — **надёжная техническая основа и одна честная вертикаль: просмотр слота → очередь → формирование малой текстовой комнаты → сообщение → выход/жалоба** в локальном dev environment. Никаких fake-online, fake-чатов с людьми, платёжных функций и релиза без модерации.
+## Scope и порядок задач
 
-## Конкретные deliverables
+1. Inspect repository and preserve existing files; report gaps and architecture decision log. Создай pnpm monorepo: `apps/web`, `apps/api`, `packages/contracts`, `infra/compose.yaml`.
+2. NestJS API, Prisma/PostgreSQL migrations, Redis queue/presence/TTL; zod/DTO validation, typed config, health endpoint, OpenAPI, Docker Compose for dev.
+3. Auth: dev-only test identities gated by NODE_ENV, **невозможно в production**; separate adapter/interface for real age verification, no age-gate bypass. Требования real-provider/legal до настоящей беты.
+4. Profile: public nickname/avatar preset/language; private auth separated. No public email/IP/gender. Self-serve deletion request.
+5. Text Match: server-authoritative queue+cancel+status, TTL/idempotency, language compatibility, block/ban exclusions, DB transaction/unique constraints, two-party acceptance handshake.
+6. Authenticated Socket.IO private session chat: each action authorization, XSS-safe, bounded text, rate limits, duplicate client message protection, reconnect and drop cleanup.
+7. After match: both members independently accept contact. Persistent messaging only with mutual consent. Block/unlink stops messaging immediately.
+8. Safety: block/report/leave available while matched, moderator role with protected dashboard/API, report queue and audit; appeals stub only if clearly labelled and no public unmoderated rollout.
+9. React Web/PWA mobile-first: `Text Match` front and center, honest loading/no-online state, short dialogue, mutual connect, profile, block/report; theme original, not pixel copy of Litmatch.
+10. Tests: login/age-denied, queue races/idempotency, block/ban excludes, expired handshake, ACL/IDOR, unauthorized send, rate limits, DM without mutual, reconnect, deletion. CI lint/typecheck/test.
+11. Update docs and `.env.example`, no credentials, no made-up online counters. Run commands and present exact results.
 
-1. Проверь чистоту репозитория и не удаляй пользовательские файлы. Создай `pnpm` workspace с `apps/web`, `apps/api`, `packages/contracts` и `infra/compose.yaml`.
-2. API: NestJS + PostgreSQL Prisma migrations + Redis для TTL/presence, health route, typed config validation, OpenAPI.
-3. Auth: dev-only test login в непубличном окружении + интерфейс для production-safe age gated auth provider, но **не разрешай** dev login в production и не выдавай его за проверку возраста. Закрой доступ к комнатам без `ageGateStatus=approved`.
-4. Profile: псевдоним, язык/тема, приватные данные скрыты; DTO validation.
-5. Events: seed ТОЛЬКО для локального dev с явной маркировкой `DEMO`, темами и временными слотами; никакой публикации демо-участников.
-6. Queue / Matcher: учитывай язык/тему/слот/допуск 18+/блокировки; комнаты 4–6; binary-balanced 2+2 или 3+3 только opt-in, без скрытых подмен; open доступен всем. Используй **транзакции/DB constraints** против double seating.
-7. Socket.IO: серверная проверка членства при каждом join/send; bounded message length, rate limit, HTML-neutralization; никакого доверия `userId` от клиента.
-8. Trust & safety: `report/block/leave`, базовый moderator API с RBAC и audit, простой UI жалобы, очередь review. Ни DM незнакомцам, ни аудио на этом этапе.
-9. Web: адаптивный простой интерфейс, пустой онлайн показывать честно, очередь/ошибки/отключения/отмена, доступность для клавиатуры.
-10. Tests: автоматические unit/integration/E2E для age gate, auth, unauthorized room access, XSS, block, double join, room capacity, race, report. CI lint/typecheck/test, .env.example без секретов.
-11. Docs: обнови README точными командами запуска, миграций и тестов; не заявляй работу не реализованных функций.
+## Out of scope Sprint 1
+Voice Match, voice Party Rooms, feed, payments, iOS, video, real offline events, real user recruitment without owner approval, payment integrations. **Existing `spikes/matchmaker.mjs` is a group experiment, not production 1:1 logic**; do not simply wrap and call it done.
 
-## Не делать
+## Verification
+- Two independent adults-only dev test identities, using **server validated admission**, connect through Text Match and exchange messages.
+- They cannot write to unrelated sessions; simultaneous request cannot create duplicate membership.
+- No persisted contact or DM unless both explicitly agree; block forbids reconnect and DMs.
+- At least one moderator can process report; audit trail exists; critical safety gaps are documented and deployment-blocking.
+- `pnpm install`, local dev stack, migrations, tests, lint/typecheck reproducible with `.env.example` and clean workspace.
+- All implementation should be in a separate feature branch / PR, never force-push main. End with changed files, tests/coverage, risks, and unimplemented features.
 
-- Не подключать приложение к настоящим людям/сервисам без инструкций владельца.
-- Не хранить открытые документы личности и не включать запись голоса.
-- Не копировать код/брендинг Litmatch, Yubo, OmeTV и прочих конкурентов.
-- Не запускать платные сервисы без лимитов и согласования.
-- Не расширять scope на iOS, видео, платежи и офлайн-встречи.
-
-## Definition of Done спринта
-
-- `pnpm install`, `pnpm dev`, `pnpm test`, `pnpm lint`, `pnpm typecheck` (или документированные отдельные команды) проходят на чистой машине после настройки `.env.example`.
-- `docker compose up -d` поднимает dev PostgreSQL/Redis; миграции воспроизводимы.
-- Невозможно войти в комнату без approved 18+ статуса и membership.
-- При одновременных join отсутствуют два членства одного пользователя; вместимость не превышена.
-- Комната поддерживает 4–6 реальных dev-тестовых участников, отправку текста, уход и репорт.
-- Авторизация модератора отделена; журналы действий; нет секретов в Git.
-- Итоговый отчёт: `выполнено / не выполнено / тесты / риски / последующие задачи`, коммит(ы) в отдельной ветке.
-
-## Контрольные вопросы агенту при спорных решениях
-
-Предпочитай более безопасную и простую реализацию, записывай в `docs/DECISIONS.md`. Никогда не «проходи тесты» фиктивными участниками, обходом возрастного gate или заглушкой модерации, которая изображает работающий backend.
+## No shortcuts
+Never claim compliant age verification because of unchecked 18+ checkbox; never invent people, store mic recordings, copy assets/name/style/code from Litmatch, turn on public chat without moderation, or add paid access to attention. Respect local privacy law and platform policies.
