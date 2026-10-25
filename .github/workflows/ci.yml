@@ -1,0 +1,56 @@
+name: PULSE CI
+
+on:
+  push:
+    branches: [main, "codex/**"]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pulse
+          POSTGRES_PASSWORD: pulse_local_only
+          POSTGRES_DB: pulse
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pulse -d pulse"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://pulse:pulse_local_only@127.0.0.1:5432/pulse_test?schema=public
+      PULSE_TEST_DATABASE_URL: postgresql://pulse:pulse_local_only@127.0.0.1:5432/pulse_test?schema=public
+      REDIS_URL: redis://127.0.0.1:6379
+      NODE_ENV: test
+      DEV_TEST_AUTH_ENABLED: "true"
+      WEB_ORIGIN: http://localhost:5173
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.0.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: PGPASSWORD=pulse_local_only createdb -h 127.0.0.1 -U pulse pulse_test
+      - run: pnpm --filter @pulse/api exec prisma migrate deploy
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm --filter @pulse/api test:e2e
+      - run: pnpm --filter @pulse/web build
+      - run: pnpm --filter @pulse/api build

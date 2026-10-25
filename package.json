@@ -1,11 +1,24 @@
 {
-  "name": "pulse-planning-bootstrap",
+  "name": "pulse",
+  "version": "0.2.0",
   "private": true,
-  "version": "0.1.0",
-  "description": "PULSE product docs, offline UX demo, and research-only matching spike (NOT production app)",
-  "engines": { "node": ">=20" },
+  "packageManager": "pnpm@10.0.0",
+  "engines": { "node": ">=22" },
+  "pnpm": {
+    "overrides": { "webpack": "5.112.2" },
+    "onlyBuiltDependencies": ["@prisma/client", "prisma", "esbuild"]
+  },
   "scripts": {
-    "test": "node --test spikes/matchmaker.test.mjs",
-    "demo:match": "node spikes/demo.mjs"
-  }
+    "dev": "pnpm --parallel --filter @pulse/api --filter @pulse/web dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm run test:spike && pnpm -r test",
+    "test:spike": "node --test spikes/matchmaker.test.mjs",
+    "test:e2e": "pnpm --filter @pulse/api test:e2e",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm --filter @pulse/web build && pnpm --filter @pulse/api build",
+    "db:generate": "pnpm --filter @pulse/api db:generate",
+    "db:migrate": "pnpm --filter @pulse/api db:migrate"
+  },
+  "devDependencies": { "eslint": "^9.20.0", "typescript-eslint": "^8.24.0" }
 }

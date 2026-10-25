@@ -1,0 +1,249 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETION_REQUESTED
+  DELETED
+}
+enum AgeGateStatus {
+  UNVERIFIED
+  VERIFIED
+  DENIED
+}
+enum Role {
+  MEMBER
+  MODERATOR
+  ADMIN
+}
+enum QueueStatus {
+  WAITING
+  OFFERED
+  CANCELLED
+  EXPIRED
+  MATCHED
+}
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  CANCELLED
+}
+enum SessionStatus {
+  ACTIVE
+  ENDED
+  BLOCKED
+}
+enum ContactStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+  BLOCKED
+}
+enum ReportStatus {
+  OPEN
+  REVIEWING
+  ACTIONED
+  DISMISSED
+}
+
+model User {
+  id                  String       @id @default(cuid())
+  status              UserStatus   @default(ACTIVE)
+  ageGateStatus       AgeGateStatus @default(UNVERIFIED)
+  ageGateProviderRef  String?
+  role                Role         @default(MEMBER)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  deletionRequestedAt DateTime?
+  profile             Profile?
+  sessions            AuthSession[]
+  queues              MatchQueue[]
+  reservations        ActiveReservation[]
+  activeQueueSlot     ActiveQueueSlot?
+  blocksMade          UserBlock[]  @relation("Blocker")
+  blocksReceived      UserBlock[]  @relation("Blocked")
+  reportsMade         Report[]     @relation("Reporter")
+  messages            MatchMessage[]
+  auditsAsActor       AuditEvent[] @relation("AuditActor")
+  @@index([status, ageGateStatus])
+}
+
+model Profile {
+  userId       String   @id
+  nickname     String   @db.VarChar(32)
+  language     String   @db.VarChar(8)
+  avatarPreset String   @db.VarChar(32)
+  interests    String[] @default([])
+  rulesAcceptedAt DateTime?
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([language])
+}
+
+model AuthSession {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, expiresAt])
+}
+
+model MatchQueue {
+  id              String      @id @default(cuid())
+  userId          String
+  language        String      @db.VarChar(8)
+  mood            String?     @db.VarChar(16)
+  idempotencyKey  String      @unique
+  status          QueueStatus @default(WAITING)
+  joinedAt        DateTime    @default(now())
+  expiresAt       DateTime
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([status, language, joinedAt])
+  @@index([userId, status])
+}
+
+model ActiveQueueSlot {
+  userId    String   @id
+  queueId   String   @unique
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([expiresAt])
+}
+
+model MatchOffer {
+  id          String      @id @default(cuid())
+  userAId     String
+  userBId     String
+  status      OfferStatus @default(PENDING)
+  expiresAt   DateTime
+  acceptedAAt DateTime?
+  acceptedBAt DateTime?
+  createdAt   DateTime    @default(now())
+  session     MatchSession?
+  reservations ActiveReservation[]
+  @@index([userAId, status])
+  @@index([userBId, status])
+}
+
+model ActiveReservation {
+  userId    String   @id
+  offerId   String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offer     MatchOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  @@index([offerId])
+  @@index([expiresAt])
+}
+
+model MatchSession {
+  id        String        @id @default(cuid())
+  offerId   String        @unique
+  status    SessionStatus @default(ACTIVE)
+  startedAt DateTime      @default(now())
+  endedAt   DateTime?
+  expiresAt DateTime
+  offer     MatchOffer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  members   MatchMember[]
+  messages  MatchMessage[]
+  contact   ContactEdge?
+  @@index([status, startedAt])
+}
+
+model MatchMember {
+  id        String   @id @default(cuid())
+  sessionId String
+  userId    String
+  joinedAt  DateTime @default(now())
+  leftAt    DateTime?
+  session   MatchSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  @@unique([sessionId, userId])
+  @@index([userId, leftAt])
+}
+
+model MatchMessage {
+  id              String   @id @default(cuid())
+  sessionId       String
+  authorId        String
+  clientMessageId String
+  text            String   @db.VarChar(1000)
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime
+  session         MatchSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  author          User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  @@unique([authorId, clientMessageId])
+  @@index([sessionId, createdAt])
+  @@index([expiresAt])
+}
+
+model ContactEdge {
+  id         String        @id @default(cuid())
+  sessionId  String        @unique
+  userAId    String
+  userBId    String
+  voteAAt    DateTime?
+  voteBAt    DateTime?
+  status     ContactStatus @default(PENDING)
+  createdAt  DateTime      @default(now())
+  session    MatchSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  @@unique([userAId, userBId])
+}
+
+model ContactMessage {
+  id              String   @id @default(cuid())
+  contactId       String
+  authorId        String
+  clientMessageId String
+  text            String   @db.VarChar(1000)
+  createdAt       DateTime @default(now())
+  @@unique([authorId, clientMessageId])
+  @@index([contactId, createdAt])
+}
+
+model UserBlock {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+  blocker   User     @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+  @@unique([blockerId, blockedId])
+  @@index([blockedId, blockerId])
+}
+
+model Report {
+  id            String       @id @default(cuid())
+  reporterId    String
+  targetUserId  String
+  sessionId     String?
+  category      String       @db.VarChar(32)
+  details       String?      @db.VarChar(500)
+  status        ReportStatus @default(OPEN)
+  createdAt     DateTime     @default(now())
+  reviewedAt    DateTime?
+  reporter      User         @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  @@index([status, createdAt])
+}
+
+model AuditEvent {
+  id        String   @id @default(cuid())
+  actorId   String?
+  action    String   @db.VarChar(64)
+  subjectId String?
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now())
+  actor     User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  @@index([createdAt])
+  @@index([action, createdAt])
+}

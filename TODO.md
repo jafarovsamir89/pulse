@@ -6,8 +6,8 @@
 - [x] Документация v0.1, прототип и spike группового подбора (исследовательские артефакты).
 - [x] Product pivot v0.2, PRD, Litmatch feature matrix, обновлённый roadmap/Codex brief.
 - [ ] T-001 Сформировать 15–25 интервью, выбор стартового языка/часов и команды модерации.
-- [ ] T-002 Доработать Web UX prototype: Text Match, ожидание, короткий чат, взаимный контакт, жалоба.
-- [ ] T-003 Создать monorepo `apps/web`, `apps/api`, `packages/contracts`, `infra/compose.yaml`; CI.
+- [x] T-002 Доработать Web UX: Text Match, ожидание, короткий чат, взаимный контакт, жалоба.
+- [x] T-003 Создать monorepo `apps/web`, `apps/api`, `packages/contracts`, `infra/compose.yaml`; CI.
 - [ ] T-004 Auth и серверный возрастной допуск 18+; провайдер проверки, dev login *только dev*, privacy/terms.
 - [ ] T-005 Профиль: псевдоним, язык, безопасный preset avatar, удаление аккаунта.
 - [ ] T-006 Queue Text Match 1:1: TTL, отмена, idempotency, fairness, no fake users, no duplicate active session.
@@ -19,6 +19,12 @@
 - [ ] T-012 Unit/integration/E2E security: age access, race, IDOR, unauthorized message, block, ban, spam, cleanup.
 - [ ] T-013 Проверить store policy/local privacy laws/поставщика age checks и операционный бюджет.
 - [ ] T-014 Демо на двух реальных тестовых клиентах и decision gate S1.
+
+## Sprint 1 implementation status (local branch)
+
+- В `apps/api` реализованы локальные dev identities, профиль и серверные age/rules gates, PostgreSQL queue/TTL/handshake, WebSocket чат, mutual contact/DM, block/report/leave и RBAC API. В `apps/web` реализован соответствующий русскоязычный flow.
+- E2E тесты используют только synthetic identities и отдельную БД `pulse_test` на loopback. До Sprint 1 gate остаются production age/auth provider, retention/deletion worker, полная операционная moderation, privacy settings, два клиентских браузера с визуальной QA и закрытие оставшихся safety gaps.
+- Запуск, тесты и ограничения описаны в README. Не считать незавершённые T-004—T-014 закрытыми только по наличию частичной реализации.
 
 ## P0.5 — текстовые Party Rooms
 - [ ] T-050 Тематические комнаты 4–6, live presence, admission, host roles, leave/report.
