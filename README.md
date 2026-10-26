@@ -39,9 +39,39 @@
 
 ## Что реально существует сегодня
 
-- [prototype/index.html](prototype/index.html) — **устаревающий автономный демонстрационный экран v0.1**; не имитирует реально работающий онлайн, требует редизайна под v0.2.
-- [spikes/matchmaker.mjs](spikes/matchmaker.mjs) — экспериментальная модель **группового** подбора, **не** production backend и **не** готовый Text Match.
-- `node --test spikes/matchmaker.test.mjs` — тесты существующего spike.
+- `apps/web` — React/TypeScript интерфейс локальной alpha: onboarding-профиль, честное ожидание, handshake, приватный чат, жалоба/блокировка, взаимные контакты и профиль.
+- `apps/api` — NestJS REST/Socket.IO API, Prisma/PostgreSQL очередь Text Match, серверный допуск, безопасность, взаимные контакты и модераторские API.
+- `packages/contracts` — общие схемы валидации; `infra/compose.yaml` — локальные PostgreSQL и Redis; `.github/workflows/ci.yml` — CI.
+- `spikes/matchmaker.mjs` и `prototype/index.html` остаются историческими исследовательскими артефактами.
+
+Это рабочая **локальная alpha**, а не публичный сервис. Логин доступен только двум синтетическим тестовым пользователям в dev/test. Реальная регистрация и провайдер проверки возраста не подключены, поэтому production запуск закрыт.
+
+## Локальный запуск
+
+Требуются Node.js 22+, pnpm 10+, Docker и Docker Compose.
+
+```sh
+cp .env.example .env
+docker compose -f infra/compose.yaml up -d
+pnpm install --frozen-lockfile
+pnpm db:generate
+pnpm db:migrate
+docker compose -f infra/compose.yaml exec -T postgres createdb -U pulse pulse_test
+pnpm dev
+```
+
+Откройте `http://localhost:5173` в двух отдельных браузерах/профилях и войдите как «Тестовый взрослый A» и «Тестовый взрослый B». Это synthetic identities только для локальной разработки; они не представляют реальных пользователей. API Swagger доступен на `http://localhost:3000/docs`.
+
+Критические E2E тесты используют только выделенную локальную БД `pulse_test` на `127.0.0.1`; команду запускайте из окружения с соответствующими локальными PostgreSQL/Redis:
+
+```sh
+PULSE_TEST_DATABASE_URL='postgresql://pulse:pulse_local_only@127.0.0.1:54329/pulse_test?schema=public' \
+DATABASE_URL='postgresql://pulse:pulse_local_only@127.0.0.1:54329/pulse_test?schema=public' \
+pnpm --filter @pulse/api exec prisma migrate deploy
+PULSE_TEST_DATABASE_URL='postgresql://pulse:pulse_local_only@127.0.0.1:54329/pulse_test?schema=public' pnpm test:e2e
+```
+
+Проверки качества: `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm --filter @pulse/web build`, `pnpm --filter @pulse/api build`.
 
 ## Планируемый стек
 
@@ -59,6 +89,6 @@ React + TypeScript + Vite (PWA); NestJS + Prisma + PostgreSQL; Redis (presence/T
 
 ## Статус и критерий продвижения
 
-**Сейчас:** только концепция + документация + UI-демо v0.1 + локальный spike. **Дальше:** реализовать сквозную Web/PWA Text Match вертикаль с модерацией и тестами; только потом Voice Match, Party Rooms и Android. Первые 100–300 тестировщиков 18+, одна плотная языковая когорта, измеряем время до реального диалога, качество, D1/D7, жалобы и себестоимость.
+**Сейчас:** локальная сквозная Web/API alpha реализует Text Match и базовые проверки безопасности. До пилота нужны настоящий auth/age provider, политика хранения и удаления, операционная модерация и production hardening. Только затем Voice Match, Party Rooms и Android. Первые 100–300 тестировщиков 18+, одна плотная языковая когорта, измеряем время до реального диалога, качество, D1/D7, жалобы и себестоимость.
 
 Мы не копируем чужую интеллектуальную собственность и не утверждаем, что само описание концепции означает готовность к App Store/Google Play. Проверять актуальные требования и проводить юридический review обязательно.

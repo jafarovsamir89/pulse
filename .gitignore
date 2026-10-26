@@ -1,6 +1,9 @@
 node_modules/
+**/node_modules/
 dist/
 build/
+**/dist/
+**/build/
 .env
 .env.*
 !.env.example
@@ -9,5 +12,10 @@ coverage/
 *.log
 *.sqlite
 *.db
+.turbo/
+.pnpm-store/
+.vite/
+.eslintcache
+.tmp/
 .vscode/
 .idea/

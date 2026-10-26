@@ -22,6 +22,7 @@
 | D-015 | 2026-10-21 | Быстрый текстовый матч только с взаимным handshake, rate limits, блокировками и human moderation | высокий abuse-риск | принято |
 | D-016 | 2026-10-21 | iOS random/anonymous-chat риск не снимается добавлением комнат | Apple §1.2 актуального обзора | принято |
 | D-017 | 2026-10-21 | Moments отложен в P2, реальные Outings — P3 | safety и борьба с пустой аудиторией | принято |
+| D-018 | 2026-10-25 | Sprint 1 реализуется как локальная монолитная alpha: NestJS + Prisma/Postgres, Redis rate limiting, Socket.IO, React/Vite; synthetic dev auth только вне production | сквозной сценарий с минимальным числом движущихся частей и явным production gate для возраста | принято для alpha |
 
 ## Требуют решения до production
 
