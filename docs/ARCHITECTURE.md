@@ -1,189 +1,65 @@
-# PULSE — техническая архитектура / design draft (с addendum v0.2)
+# PULSE — архитектура v0.4
 
-**Дата:** 21.10.2026. **Важное уточнение:** ниже исторические event-first схемы дополнены актуальным Text Match-first v0.2 в конце. Читай addendum вместе с PRD v0.2. Целевая архитектура, **не описание уже работающего сервиса**. Основной принцип: минимальный монолит, собственные правила подбора/безопасности и управляемый RTC для голоса.
+**25.10.2026 · целевая схема, не готовый сервис.** Текущая alpha находится в отдельном PR №1; [аудит](strategy/TECHNICAL_REVIEW.md) сохраняет найденные проблемы. Не переписывать стек ради смены концепции.
 
-## 1. Технологии и причины выбора
+## Основание
 
-| Слой | Выбор | Почему |
-|---|---|---|
-| Web/PWA | React + TS + Vite | быстрый мобильный веб для invite-links, без обязательного магазина |
-| Backend | NestJS + TS | единый язык, модульные сервисы, guards, WebSocket gateway |
-| DB | PostgreSQL + Prisma | транзакции, ограничения целостности, миграции |
-| Queue/Presence | Redis | короткоживущий presence, rate limiting, очереди, не источник истины о денежных/аккаунтных данных |
-| Events | Socket.IO | авторизованное двунаправленное текстовое общение |
-| Voice (S2) | LiveKit Cloud | WebRTC SFU, scoped tokens, метрики participant-minutes |
-| Infra | Docker Compose для dev | воспроизводимый старт на Mac/PC, отдельный staging |
-| Monitoring | OpenTelemetry/Sentry/метрики | ошибки, p95, репорты, отказ очереди |
-| Mobile later | React Native/Expo | единые контракты; после проверки UX Web |
+React/TypeScript/Vite; NestJS modular monolith; PostgreSQL/Prisma как источник durable state; Redis для presence/лимитов/коротких подсказок; Socket.IO transport. LiveKit/WebRTC позже. Один backend и DB до доказанной необходимости разделения. Ни Kafka, ни ML matchmaking, ни собственный SFU для G1 не нужны.
 
-Не вводить микросервисы и Kafka до подтверждённой необходимости. Не использовать сторонний сервис звонков без расчёта стоимости и review условий данных.
+Модули: Identity/Admission, Lobby/Matchmaking, GameEngine, Content, Chat, Continuation/Connections, TrustSafety, Analytics. Границы логические; не восемь микросервисов. GameEngine — чистые переходы + транзакционный application layer, пригодный для deterministic tests.
 
-## 2. Предлагаемое монорепо
+## Данные
 
-```text
-pulse/
-  apps/
-    web/              # React/Vite/PWA
-    api/              # NestJS REST + Socket.IO
-    admin/            # позже: защищённая модераторская панель
-    mobile/           # после беты
-  packages/
-    contracts/        # общие API DTO и schemas, строго типизированные
-    ui/               # позже общие элементы интерфейса
-  infra/
-    compose.yaml
-  prisma/
-    schema.prisma
-    migrations/
-  docs/
-  prototype/          # демонстрация, не клиент production
-  spikes/             # изолированные исследования
-```
+| Сущность | Инвариант |
+|---|---|
+| User/Session/Admission | Только active eligible subject; приватные данные не в Profile |
+| Lobby/Invite/Offer | TTL, max uses, revoke, безопасный ready check, не более одного активного места |
+| GameSession/GameMember | Тип/версия/состояние; member права и epoch; история завершения |
+| Round/CardVersion | Серверный deadline и допустимые команды; версия контента immutable |
+| SecretAnswer/Guess | UNIQUE(round,user,kind); приватные до reveal, никакого client-side preload |
+| ScoreEvent | UNIQUE(round,user,reason); точно один эффект принятой команды |
+| ClientCommand/OutboxEvent | Идемпотентность; durable event ID/cursor; публикация после commit |
+| ReMeetConsent | Обоюдный scoped opt-in на ограниченное игровое приглашение |
+| ContactEdge | Каноническая unordered пара + независимый DM consent; revoke без resurrection |
+| Circle/CircleMember | ≥3 явных согласия; invite/read права scoped; выход и блокировки |
+| Block/Report/ModerationAudit | Актуальные ограничения, private evidence, moderator RBAC |
 
-## 3. Границы модулей API
+Это логическая модель. Проверить текущую Prisma schema перед миграциями; не создавать параллельные несовместимые Contacts.
 
-- `Identity`: authentication, sessions, age gate, deletions, roles; passwords/OTP через надёжного провайдера либо проверенную реализацию.
-- `Profiles`: nicknames, language, interests; приватные vs публичные поля, coarse city opt-in.
-- `Events`: расписание тематических вечеров, темы, host, capacity, lifecycle.
-- `Matchmaking`: join queue, atomic seat reservation, language+time+topic, safe exclusions, opt-in balance.
-- `Chat`: message validation/persistence TTL, read permissions, mute/ban.
-- `Prompts`: moderated starter questions and mini-games, no popularity metrics.
-- `Contacts`: mutual-only, revocable relationships; не доступен до S2.
-- `TrustSafety`: reports, blocks, enforcement, appeals, audit; независим от monetization.
-- `RTC`: short-lived server-issued LiveKit tokens with event ID membership check, on/off flag.
-- `Analytics`: de-identified structured events without content of chat or personal details.
+## Команда и переход
 
-## 4. DB сущности (высокоуровнево)
+WAITING → READY_CHECK → INTRO → PROMPT → PRIVATE_ANSWER → PREDICT → LOCKED → REVEAL → DISCUSSION → NEXT_ROUND → RESULTS → CLOSED. Rematch создаёт новый game ID; не переоткрывает завершённую игру. Общий финал — отдельный тип раунда без оценочного прогноза.
 
-- `User(id, createdAt, status, ageGateStatus, deleteRequestedAt)`
-- `UserPrivate(userId, authProviderId, optionalEncryptedEmail, verificationState)` — отдельная политика доступа.
-- `Profile(userId, nickname, avatarPresetId, language, displayCityNullable)`.
-- `MatchPreferences(userId, topicIds, roomMode, genderSelfDescriptionNullablePrivate)` — приватный атрибут, не публичный фильтр внешности.
-- `Event(id, topic, language, startsAt, maxParticipants, status, hostIdNullable)`.
-- `QueueEntry(id, eventId, userId, mode, joinedAt, expiresAt, status)`.
-- `Room(id, eventId, mode, status, minSize, maxSize, startedAt, endedAt)`.
-- `RoomMember(roomId, userId, role, joinedAt, leftAt, status)`.
-- `Message(id, roomId, authorId, content, createdAt, expiresAt, moderationState)`.
-- `Block(blockerUserId, blockedUserId, createdAt)`.
-- `Report(id, reporterId, targetType, targetId, category, createdAt, status, assignedModeratorIdNullable)`.
-- `ModerationAction(id, actorId, subjectId, type, reason, createdAt, expiresAtNullable)`.
-- `ContactRequest(id, fromUserId, toUserId, sharedRoomId, status, createdAt)`.
-- `ConsentReceipt(userId, consentType, policyVersion, grantedAt, revokedAtNullable)`.
-- `AuditEvent(id, actor, action, time, structuredData)` — разделить доступные и секретные данные.
+Команда содержит commandId, gameId, expectedVersion, roundId, payload; subject выводится из auth. В транзакции: проверка session/admission/member/block/phase/deadline → compare-and-set version → запись ответа/score → outbox. Дубликат возвращает исходный результат без второго эффекта. Поздний ответ отклоняется с актуальным snapshot. Клиентский таймер только отображает серверный deadline.
 
-Состав таблиц пересмотреть при реализации; не хранить пол/гендер там, где функция не требует, не делать точную геолокацию обязательной.
+Deadline worker и входящая команда используют один переход с блокировкой строки/version CAS. Истечение Redis не делает DB-room бессмертной. После перезапуска восстанавливать overdue transitions, не начинать раунд заново. Проверить конкурентные процессы, а не только последовательные вызовы.
 
-## 5. API-контракты (проект)
+## Секреты, события, отзыв доступа
 
-```http
-POST   /v1/auth/start
-POST   /v1/auth/verify
-GET    /v1/me
-PATCH  /v1/me/profile
-DELETE /v1/me
-GET    /v1/events?language=ru&topic=talk
-POST   /v1/events/{id}/join-queue
-DELETE /v1/queue/{entryId}
-GET    /v1/queue/{entryId}
-GET    /v1/rooms/{roomId}
-POST   /v1/rooms/{roomId}/leave
-POST   /v1/blocks
-POST   /v1/reports
-POST   /v1/rooms/{roomId}/rtc-token        # feature flag, S2
-POST   /v1/contacts/requests               # mutual-only, S2
-```
+Раздельные public/private DTO и query paths. До reveal нельзя получить чужой answer/guess в REST, socket, snapshot, логах, аналитике, error payload или host UI. Moderation доступа «посмотреть все секреты» нет по умолчанию; evidence по утверждённой политике.
 
-WebSocket события (должны проверяться на сервере):
+Socket handshake недостаточен: права проверяются для команд и доставки. Logout, ban, deletion и block меняют epoch/membership и закрывают разрешённые подписки. Fan-out не отправляет событие уже отозванному получателю. «Мгновенно» означает прекращение новых доставок после commit; уже доставленное нельзя стереть из памяти другого человека.
 
-```text
-room.join        { roomId }                  -> room.joined | room.error
-room.send        { roomId, text, clientId }  -> room.message | room.error
-room.leave       { roomId }                  -> room.left
-room.prompt      { roomId, promptId }        -> room.prompted (host/system only)
-room.presence    { roomId, count }           -> validated aggregate only
-room.moderate    { roomId, targetId, action } -> privileged + audit
-```
+Block(A,B) не отменяет чужой матч B–C. В группе политика выхода A описана в PRD; не раскрывать виновника. Concurrent vote/revoke не восстанавливает ContactEdge; одна каноническая пара может иметь историю нескольких игр.
 
-Не передавать authentication через доверие клиентскому `userId`; сервер устанавливает subject из проверенной сессии.
+## Сеть
 
-## 6. Матчинг: безопасность и атомарность
+At-most-once transport не означает guaranteed delivery. Нужны ACK после DB commit, client command ID, ordered event cursor, bounded replay и member-filtered snapshot. Предыдущее состояние UI показывать как pending/failed, не притворяться отправленным. Reconnect не выдаёт секреты и не удваивает очки.
 
-1. Сервер проверяет auth, возраст, active bans, выбранный режим, язык, время, отсутствие дубликата активного queue/room.
-2. Сохраняет заявку с idempotency key, устанавливает TTL, проверяет лимиты.
-3. Раз в короткий интервал (или по событию) подбирает кандидатов в одной когорте, исключая взаимные блокировки и прошлые жалобы с ограничениями.
-4. Для `open` собирает группы 4–6. Для `balanced` формирует 2+2 либо 3+3 **только из opt-in доступных участников**. Не изобретает отсутствующих людей.
-5. **Транзакция БД + row locks/unique indexes** фиксирует состав и меняет состояния заявок; Redis lock один не обеспечивает целостность.
-6. Перед входом короткое подтверждение reservation; timeout освобождает места без «призрачного онлайна».
-7. При shortage сообщает реальное состояние и предлагает режим open или следующий слот только по согласию.
-8. При block/report/ban немедленно обновляет membership и токены RTC; повторный join проверяется сервером.
+История с pagination; тест >100 сообщений. Outbox publisher допускает дубли; клиенты/потребители дедуплицируют event ID. При потере Redis новые admits/rate-limited операции fail closed, но leave/report должны иметь безопасный ограниченный путь через durable service; автоматическое восстановление connections/readiness отдельно от liveness.
 
-**Демо-алгоритм** в `spikes/` показывает только принцип равенства/вместимости. Он НЕ обеспечивает транзакционность, blocklists, очереди из сети и не пригоден для продакшена.
+[Socket.IO delivery](https://socket.io/docs/v4/delivery-guarantees/), [multi-node](https://socket.io/docs/v4/using-multiple-nodes/), [recovery](https://socket.io/docs/v4/connection-state-recovery/). Обычный Redis Pub/Sub adapter не заменяет durable replay. Конкретные пакеты/версии выбрать при реализации по текущим docs.
 
-## 7. Trust boundary и злоупотребления
+## Matching и компании
 
-- TLS end-to-end; защищённая сессия; JWT lifetime короткий или secure-cookie с refresh rotation.
-- Socket.IO авторизация при handshake И **каждом** send/join, запрет угаданного roomId (IDOR).
-- DB constraints: one active membership per user, уникальность block pair, уникальный clientId message per sender для идемпотентности.
-- Rate limits: IP/session/account + адаптация для accessibility; защита от invite spam.
-- Контент: ограничение текста, neutralisation HTML, moderation queue; PII stripping из логов.
-- REST/OpenAPI DTO validation, CORS/CSRF согласно модели auth, secrets manager.
-- Audio: scoped токен `<roomId, identity, role, exp>` только сервером, комната без public key, запись выключена по умолчанию.
-- Separate RBAC moderator/admin и MFA для админов; audit changes.
+Hard constraints: допуск, язык, формат, реальные ready, bans/blocks, общие разрешённые темы. Soft constraints: время ожидания, повторяемость пары по желанию, избегание быстрого повторного неприятного контакта. Не строить personality score из переписок. Пол не требуется.
 
-## 8. События, наблюдаемость и стоимость
+Invite и queue — два входа в одинаковый GameEngine. Расписание ограничивает стартовый stranger-pool, но приватная игра с другом не зависит от нахождения незнакомца. Группа не стартует с фиктивными игроками. Scope consent и expiry проверяются при каждом будущем приглашении.
 
-- Публикуем `event_viewed`, `queue_joined`, `queue_wait_ms`, `room_started`, `participant_joined`, `safe_session_completed`, `report_submitted`, `contact_mutual`, `rtc_participant_minute`.
-- Metrics не включают текст, точную локацию, номер, гендер другого участника.
-- Dashboards: неполные комнаты, p95 wait, room crashes, жалобы на 100 session-hours, voice spend/day.
-- Nightly integrity check: онлайн = authenticated active sockets/RTC participants, не регистрации.
-- Затраты голоса оценивать по participant-minutes; нет монетизации до KPI.
+## Эксплуатация и рост
 
-## 9. Эволюция / CI
+G1: один API, managed DB, Redis, backups, лимиты, мониторинг game transitions и жалоб. При 100/1k CCU сначала измерить p95, lag, reconnect storms. При 10k — несколько API, общий adapter/outbox, DB indexes/pool, partition по game ID. 100k требует отдельного нагрузочного проекта, региона/юррисдикции и capacity planning, не настройки одного лимита.
 
-- CI: lint, typecheck, unit, integration (Postgres/Redis), migrations, security audit, E2E критических флоу.
-- Staging с тестовыми accounts; synthetic users **только в тестовой среде**, никогда под видом людей в live.
-- Feature flags: `voice_enabled`, `balanced_mode`, `contacts_enabled`, `offline_events_enabled`.
-- Эксплуатация: backups + restore drill, health checks, alerting on report SLA, deploy rollback.
+Верификация: clean install/generate/typecheck; unit state transitions; real local Postgres/Redis integration; 2–4 browser E2E; concurrency/fault/revoke/restore. Только synthetic identities и explicit loopback endpoints. Production миграции/деплой не относятся к локальной проверке.
 
-
----
-
-## v0.2 ADDENDUM — быстрый парный Text Match (21.10.2026)
-
-**Актуальный источник продукта — PRD v0.2.** Выше в историческом черновике Event-first модель описывает будущие **Party Rooms**, но **первой сквозной вертикалью теперь является Text Match 1:1**. Не реализовывать календарь как условие первого матча.
-
-### Дополнения к доменной модели
-
-- `MatchQueue(id,userId,language,moodNullable,joinedAt,expiresAt,state,idempotencyKey)`.
-- `MatchOffer(id,userAId,userBId,expiresAt,aAcceptedAtNullable,bAcceptedAtNullable,status)`.
-- `MatchSession(id,offerId,startedAt,endedAt,status)`, строго два разных активных участника.
-- `MatchMember(sessionId,userId,joinedAt,leftAt)`; unique active session per user (DB constraint).
-- `MatchMessage(id,sessionId,authorId,text,createdAt,expiresAt,moderationState)`.
-- `ContactEdge(userAId,userBId,consentAAtNullable,consentBAtNullable,status)`; DM только при двух согласиях, revoke/block атомарно закрывает возможность отправки.
-- `UserBlock` распространяется на matching, match chat и Contacts/DM.
-
-### Дополнительные endpoints (draft)
-
-```http
-POST   /v1/text-match/queue
-GET    /v1/text-match/queue/current
-DELETE /v1/text-match/queue/current
-POST   /v1/text-match/offers/{offerId}/accept
-POST   /v1/text-match/offers/{offerId}/decline
-GET    /v1/text-match/sessions/current
-POST   /v1/text-match/sessions/{id}/leave
-POST   /v1/text-match/sessions/{id}/contact-vote
-GET    /v1/contacts
-POST   /v1/contacts/{id}/messages
-POST   /v1/contacts/{id}/revoke
-```
-
-Chat Socket.IO: `match.join`, `match.send`, `match.leave`, `match.offer`, `match.accepted`, `match.failed` — server derives identity from auth. Offer acceptance and queue removal must be transaction-safe and idempotent. Explicitly test Redis expiry vs persistent DB state, race on dual clients, disconnect and ban/block mid-session. No store-policy workaround claims.
-
-### Component decomposition and sequence
-
-`Identity` -> `TextMatchService` (DB reservation + Redis TTL) -> `MatchChatGateway` -> `Contacts` -> `TrustSafety`. Party Rooms remain separate `Event/Room` subsystem; VoiceMatch and RTC introduced in P1. Reduce coupling by shared `ActiveSessionGuard`, `PolicyService`, and `ModerationAudit`.
-
-### Prototype alignment
-
-`prototype/index.html` reflects the old Event-first idea. It is not a working chat. Replace in Sprint 1 with an original Text Match-first UI; no fake users or fabricated counts.
+Инфраструктурный бюджет и graceful shutdown: не начинать новые игры при превышении разрешённой ёмкости; завершать существующие, не отрезать safety. Voice отдельный feature flag, scoped tokens, server-side remove participant и бюджет participant-minutes, без записи по умолчанию.
