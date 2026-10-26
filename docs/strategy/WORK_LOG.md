@@ -23,3 +23,10 @@
 - Основной checkout /Users/macbookair/Documents/domino/PULSE: чистый, HEAD 2c37fb9; он не переключался и не менялся. Production/миграции/live data/Android не тронуты.
 - Приложение заново не тестировалось ради документов. Результаты PR №1 не улучшены этим пакетом; следующий P01 отдельно. Исходный дефектный аудит сохранён в текущем TECHNICAL_REVIEW и архиве.
 - Пакет готов для commit/push и обновления существующего PR №2 под весь конечный scope; без merge.
+
+## 2026-10-25 · U03 · публикация и handoff
+
+- Commit 20ec1e9b1b6f2ba0e2645bfd41b3b3b3c56ba313 опубликован в codex/project-genesis. PR №2 переименован и описание полностью обновлено под v0.4; артефакт прикреплён к чату. PR open/mergeable, не merged.
+- Оба research-tests PASS на этом SHA: [push](https://github.com/jafarovsamir89/pulse/actions/runs/40255174584/job/121355362171), [pull request](https://github.com/jafarovsamir89/pulse/actions/runs/40255177535/job/121355371134). Это старый spike, не alpha acceptance.
+- Финальный validator: 162 local links, все 19 archive hashes и deterministic financial outputs PASS. Diff ограничен документацией, аналитическими моделями/валидатором и сохранёнными иллюстрациями. Worktree после публикации чистый до этой записи handoff.
+- Следующий шаг: отдельный P01 ремонт alpha; не приступать автоматически к production или игре до engineering scope. Для PR №1 потребуется согласование его старых документов с v0.4 при будущем объединении.
