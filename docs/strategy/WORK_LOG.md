@@ -30,3 +30,9 @@
 - Оба research-tests PASS на этом SHA: [push](https://github.com/jafarovsamir89/pulse/actions/runs/40255174584/job/121355362171), [pull request](https://github.com/jafarovsamir89/pulse/actions/runs/40255177535/job/121355371134). Это старый spike, не alpha acceptance.
 - Финальный validator: 162 local links, все 19 archive hashes и deterministic financial outputs PASS. Diff ограничен документацией, аналитическими моделями/валидатором и сохранёнными иллюстрациями. Worktree после публикации чистый до этой записи handoff.
 - Следующий шаг: отдельный P01 ремонт alpha; не приступать автоматически к production или игре до engineering scope. Для PR №1 потребуется согласование его старых документов с v0.4 при будущем объединении.
+
+## 2026-10-26 · U04 · короткое дополнение PULSE Party
+
+- Владелец выбрал весёлую вечеринку и попросил быстро добавить дополнение без пересмотра всех документов.
+- В PULSE_GAME_SOCIAL_EXPANSION.md добавлены автоматические команды 2×2, три типа раундов, opt-in командный/общий голос, автоматический ведущий, общий финал и добровольный повтор. Режим — кандидат G2; G1 и voice safety gate сохранены.
+- Ветка codex/project-genesis, PR №2 открыт. git diff --check PASS; изменения прочитаны. Полные проверки приложения и финансов не повторялись: они не затронуты. Обновлён короткий journal, следующий шаг P01 без изменений.
