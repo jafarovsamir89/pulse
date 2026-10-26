@@ -1,27 +1,16 @@
-# Технический аудит: основание пригодно, alpha не готова к пилоту
+# PULSE — технический аудит и переход к game-first v0.4
 
-**25.10.2026.** Анализируется `main` на `7b64b57bc4d0f03acfc7e56659ad2bca88fc299f` и открытый [PR №1](https://github.com/jafarovsamir89/pulse/pull/1) на `2c37fb9e561148320c67a9ba71ea16b86f92ca6e`. Выводы привязаны к этому commit, а не к будущей версии ветки. В этом PR стратегии исходники не меняются.
+**25.10.2026.** Main 47d5756 содержит документацию, исторический prototype/spike и игровую концепцию. Alpha в [PR №1](https://github.com/jafarovsamir89/pulse/pull/1) проверялась на SHA 2c37fb9e561148320c67a9ba71ea16b86f92ca6e. Код в данном документационном PR не исправляется.
 
-## 1. Что существует
+## 1. Реальное состояние и прежние доказательства
 
-`main` содержит документы, HTML-концепт и исследовательский групповой matcher с 12 тестами. В PR №1 добавлены pnpm workspace, React/Vite, NestJS, Prisma/PostgreSQL, Redis rate limiting, Socket.IO, схема и миграция, queue/offer/session, взаимный контакт, DM, block/report и moderator API. Это частичная **локальная alpha**, не production-система. Только две синтетические dev-identity; production auth и провайдер возраста не реализованы. Voice/LiveKit, Android, PWA manifest/service worker, push, полноценных модераторских операций нет.
+Полезное основание: React/Vite, NestJS, PostgreSQL/Prisma, Redis limits, Socket.IO, queue/offer/session, contact/DM, базовые safety API. Только synthetic dev auth; production admission/полные operations отсутствуют. GameEngine/secret answers/rounds/score ещё нет.
 
-Сильные решения: серверный handshake; durable state в PostgreSQL; отдельные ограничения active slot/reservation; запрет fake users; отдельный dev login; validation DTO; хранение хэша сессионного токена; rate limits с отказом при недоступности защиты. Это полезные заготовки. Их наличие не доказывает корректность всех гонок и отзыва доступа.
+Локально ранее открылись главная и Connections, поиск вернул 503 при недоступном Redis; [снимки](UX_GAME_DESIGN.md). CI verify на указанном SHA упал из-за Express/types и генерации Prisma. Эти результаты не выдаются за проверку будущих исправлений. Зелёный research-tests этой документационной ветки проверяет только старый spike.
 
-React/TypeScript + Nest + PostgreSQL/Prisma + Redis подходят для первых этапов. Переписывание на другой язык или микросервисы сейчас отвлечёт от конкретных ошибок. Socket.IO подходит при явно построенном протоколе доставки. LiveKit можно добавить после доказательства потребности в голосе. Android — отдельный клиентский и магазинный gate; web-first не означает юридического освобождения.
+## 2. Что сохраняем и что добавляем
 
-## 2. Наблюдаемые результаты проверки
-
-| Проверка | Результат и предел доказательства |
-|---|---|
-| Локальное открытие alpha | Главный экран и Connections доступны, поиск возвращает 503: недоступен Redis. Скриншоты в [UX_GAME_DESIGN.md](UX_GAME_DESIGN.md). Полный текущий UX-цикл не пройден |
-| Предыдущий локальный verify | Зафиксирован в прежней работе как успешный. Не повторялся в аналитическом задании; не является доказательством чистой установки |
-| CI на HEAD PR №1 | `research-tests` success, `verify` failure; typecheck останавливает pipeline до последующих проверок |
-| Причина CI | TS2307: `express`/типы не разрешаются; отсутствуют сгенерированные Prisma-типы. В workflow нет явного `prisma generate`; прямые зависимости Express/types не заявлены в API package |
-| E2E по коду | Четыре крупных сценария; Redis заменён `allow: async () => true`. Реальный отказ/лимит Redis этим набором не проверяется |
-| UI/контракты | `node --test` без соответствующих тестов; успешный код выхода при нуле тестов не равен покрытию |
-
-Доказательство CI: [run 40240424064 / job 121310844086](https://github.com/jafarovsamir89/pulse/actions/runs/40240424064/job/121310844086), проверено 25.10.2026. Локальная среда могла маскировать отсутствие явно объявленных зависимостей/генерации; точную причинную цепочку следует подтвердить чистой установкой, а не считать догадку окончательной. Требуемое следующее доказательство: fresh checkout → frozen install → generate → migrate local test DB → typecheck/tests/build. Deploy-скрипты для этого не нужны.
+Сохраняем стек и модульный монолит; исправляем проверенные инварианты прежде расширения. Добавляем GameEngine/Content/Continuation на общем admission и membership, а не независимую вторую систему auth/contacts.
 
 ## 3. Статические находки, которые необходимо проверить и исправить
 
@@ -46,63 +35,31 @@ P1 — блокер допуска реальных незнакомых уча�
 
 Дополнительные ограничения: проверка безопасного test DB URL ищет подстроку `127.0.0.1`; требуется строгий разбор hostname/database перед destructive reset. E2E переиспользует состояние между крупными тестами, использует только две identity и не доказывает реальный third-party IDOR. Idempotency-key сообщения не привязан явно к одной session при обработке duplicate: повтор ключа из другой сессии должен отклоняться, а не возвращать старое сообщение новому получателю. В Connections нет законченного UI revoke/report/block и live delivery. CSS alpha не содержит тёмной темы и reduced-motion режима. Общий Nest AppModule и крупный match service допустимы для spike, но границы auth, admission, messaging, consent, safety стоит закрепить до расширения.
 
-## 4. Целевая схема без смены стека
+## 4. Новые риски GameEngine
 
-Один репозиторий, модульный монолит и один регион до измеренного ограничения. PostgreSQL — источник истины о допуске, reservation, membership, consent, block, durable message и audit. Redis — короткоживущий presence, rate budgets и транспорт координации; исчезновение Redis не означает исчезновение прав или превращение заблокированного пользователя в допустимого.
+До реализации определить private/public snapshots; expectedVersion и commandId; immutable card version; серверный deadline; row-lock/CAS для answer, reveal, score и end; outbox после commit. Проверять секреты в ошибках, логах, reconnect, host UI и аналитике.
 
-Ключевые инварианты:
+G1: шесть основных раундов + общий финал; retry не второй голос, skip не проигрыш, timeout не случайный ответ. Rematch создаёт новый game ID. Три согласия разделены и отзываются без resurrection. [Полная архитектура](../ARCHITECTURE.md).
 
-1. Один пользователь имеет максимум одну активную резервацию/участие в несовместимых событиях; ограничения БД и versioned state transitions проверяются совместно.
-2. `eligible(user)` включает auth, возраст, статус, принятые версии правил и ограничения комнаты. Допуск проверяется до выдачи offer, accept и фактического join.
-3. Block/ban/revoke — durable transition с событием в transactional outbox; после commit все экземпляры API/WS/RTC получают отзыв. Определить SLA распространения и тестировать задержки, не обещать невозможный нулевой сетевой лаг.
-4. Presence имеет heartbeat и TTL, но reconnect не создаёт новую личность и не обнуляет ban. Серверные lease содержат fencing/version, старый worker не освобождает новую reservation.
-5. Durable message имеет server id, scoped client id, createdAt, expiry, membership version; ACK только после записи. Клиент хранит bounded cursor, retry идемпотентен, replay после reconnect проходит текущий ACL.
-6. Expiry обрабатывает worker с bounded batches и индексами; endpoint не сканирует глобальное состояние при каждом опросе.
+## 5. CCU-сценарии, не результаты benchmark
 
-Socket.IO по умолчанию даёт at-most-once доставку; порядок пакетов не обеспечивает получение пропущенных событий. Нужны сохранённые id/offset и replay, а не просто reconnect. [Официальные delivery guarantees](https://socket.io/docs/v4/delivery-guarantees). Для нескольких узлов нужен адаптер; при HTTP long-polling также sticky sessions. Redis Pub/Sub adapter не поддерживает connection-state recovery, Redis Streams поддерживает, но это всё равно не заменяет бизнес-проверку прав. [Multiple nodes](https://socket.io/docs/v4/using-multiple-nodes), [recovery](https://socket.io/docs/v4/connection-state-recovery).
+Для иллюстрации: 70% CCU играет; 12 private input commands на игрока за 8 минут (6×answer+guess); 30% CCU отправляет сообщение раз в 20 секунд. Финал/ready/reactions/replay добавляются сверх таблицы.
 
-## 5. Нагрузочные сценарии, не обещания ёмкости
+| CCU | Игровых input commands/s | Chat messages/s | Что исследовать |
+|---|---:|---:|---|
+| 100 | 1,75 | 1,5 | Один API, DB/Redis, реальные жизненные циклы |
+| 1 000 | 17,5 | 15 | DB locks/pool, memory, disconnect burst |
+| 10 000 | 175 | 150 | Несколько API, adapter/outbox, indexes, hot rooms |
+| 100 000 | 1 750 | 1 500 | Региональные/capacity решения, очереди, стоимость, организация |
 
-Общие допущения: один socket на CCU (проверять также ×2 вкладки), 20% пользователей в очереди, current poll каждые 1,5s; 30% отправляют одно текстовое сообщение каждые 20s; 20% подключены к голосу. Это независимые planning assumptions, не результаты load test. Исходящие события зависят от room fanout.
+Одновременный reveal после общего deadline создаёт burst, который среднее скрывает. Нагрузочный профиль должен включать синхронный ввод, массовый reconnect, медленных получателей и moderator actions. 100k CCU не выводится из 1M MAU; только фактическая session intensity даёт связь.
 
-| CCU | Poll RPS нынешнего подхода | Новые сообщения/s | Voice participants | Возможный следующий контур и проверка |
-|---:|---:|---:|---:|---|
-| 100 | 13,3 | 1,5 | 20 | 1 API + worker, managed PostgreSQL, малый Redis; process restart, восстановление и admission races важнее autoscaling |
-| 1 000 | 133,3 | 15 | 200 | 2 API для отказоустойчивости, adapter, connection pooling; измерить p95 latency, DB locks и reconnect burst |
-| 10 000 | 1 333,3 | 150 | 2 000 | Event-driven queue вместо клиентского постоянного matching; горизонтальный WS, индексы/пагинация, отдельные workers; RTC quota и региональная задержка |
-| 100 000 | 13 333,3 | 1 500 | 20 000 | Когорты закреплены за регионами, региональный admission и capacity control; RTC enterprise/self-hosted planning, отдельная SRE-функция. Ни текущий монолит, ни один тариф не проверены на такую нагрузку |
+Voice считать participant-minutes, фактические audio subscriptions и TURN. Тарифные concurrency caps/enterprise quotes отдельно от unit price. [Модель](BUSINESS_MODEL.md).
 
-При очереди только первых 20 кандидатов фильтрация блокировок в памяти может не увидеть подходящего 21-го. «Более сложный алгоритм» это не лечит: нужны индексируемые eligibility-предикаты, честная очередь, bounded retries и отсутствие starvation. Перевод на Redis не отменяет транзакционную резервацию в БД.
+## 6. Порядок и приёмка
 
-Нельзя объявлять «один сервер выдержит N» без конкретных CPU/RAM, payload, TLS, времени жизни сокетов, reconnect и fanout. При 100k socket даже условные 50–150KB на connection означают 5–15GB **только** на connection-related state; это диапазон для измерения, не опубликованный Node benchmark. Load gate: 2× плановый пик на 60 минут, 5× reconnect burst, отсутствие двойного membership/несанкционированной доставки, p95 отправки до durable ACK <500ms в выбранном регионе как целевой SLO. Измерять отдельно client network latency.
+P01: clean CI → T01–T08 → T10–T12 → T09/T13, с учётом риска и зависимостей. T14 не заменяет остальные. Независимый review критичных изменений; synthetic local DB/API/Redis, строгий URL parse вместо подстроки.
 
-## 6. Голос: минуты, сеть и отзыв
+P04: два реальных браузера + третий атакующий synthetic subject, deterministic state tests, реальные transactions и управляемые гонки; ACK/replay >100 сообщений; timeout/restart/ban/logout/delete/block. P05: человек/age route/удаление/restore/инцидент. Только затем живой пилот.
 
-Четыре человека × 25 минут = **100 participant-minutes**, а не 25. Для 32kbps аудио одна принимаемая дорожка — около 0,24MB/min без overhead. Две дорожки и 30% overhead — 0,624MB на participant-minute. DTX, число одновременно говорящих, packet loss, TURN и сеть меняют фактический расход; замер обязателен.
-
-На дату доступа LiveKit Ship: $50/месяц, 150k WebRTC minutes, сверх $0,0005/min; 250GB downstream, сверх $0,12/GB. Scale: $500, 1,5M minutes, сверх $0,0004; 3TB, сверх $0,10/GB. Публичные concurrency caps — 1 000 и 5 000 соответственно. Это **transport**, не AI-agent/STT тариф. Расчёт учитывает отдельно подключения и downstream; на больших объёмах нужен договор/quota, а не предположение бесконечной квоты. [LiveKit pricing](https://livekit.com/pricing), проверено 25.10.2026.
-
-Комната на SFU с ограничением 4–6, короткоживущие scoped tokens, server-side mute/kick, отзыв токена и разрешений участника, наблюдаемая стоимость. Не записывать голос по умолчанию. E2EE и серверная модерация содержимого несовместимы без отдельной модели раскрытия; нельзя одновременно обещать невидимый серверу контент и всевидящий автоматический контроль. Для self-hosted RTC нужны TURN/TLS, UDP capacity, room placement, draining и on-call; открытый код не делает эксплуатацию бесплатной. [LiveKit self-hosting](https://docs.livekit.io/transport/self-hosting/).
-
-## 7. Эксплуатационный минимум
-
-| Область | До ограниченного пилота | После доказанного спроса |
-|---|---|---|
-| API/auth | Реальная сессия, origin/CSRF policy, DTO bounds, per-object ACL, secret management, MFA оператору | Device/session management, risk-based anti-bot без непрозрачной массовой слежки |
-| Abuse | New-account лимиты, отдельные safety endpoints, домены/приглашения ограничены, appeals и журнал действий | Калиброванные классификаторы и human review, red-team локальных языков |
-| Наблюдаемость | Liveness отдельно от readiness DB/Redis/worker; errors, queue age, report age, revoked-delivery attempts | SLO budgets, tracing без текстов сообщений, региональная сегментация |
-| Backup | Зашифрованный backup, доступ отдельно, восстановление в изолированную БД; цель RPO ≤24h/RTO ≤4h для пилота | PITR, цель RPO ≤5min, учения; требования подтверждать бизнесом и провайдером |
-| CI/CD | Изолированная test DB, реальные Redis tests, migration compatibility, typecheck/build; ручной release gate | Staging/canary, feature flags, rollback runbook; необратимая миграция отдельно |
-| Push/offline | Текстовый reconnect/ACK; напоминание только после согласия, без текста приватного чата на lockscreen | Web Push/Android notification flow, revoked subscription cleanup, дубли/доставка по id |
-| Android/PWA | Реальный слабый Android и сеть, Web UX, accessibility; не считать браузерную вкладку установленной PWA | Native shell только после платформенных требований/проверок; crash analytics с редактированием PII |
-| Затраты | Quotas на сообщения/комнаты/voice, алерты 50/80/100% бюджета, kill switch новых подключений | Per-cohort margin и автоматический admission по бюджету без разрыва безопасного выхода |
-
-Нельзя логировать токены, текст чата, полные IP и возрастные документы в продуктовую аналитику. Security telemetry хранить отдельно, ограниченно и по обоснованной цели. Удаление из backup требует documented restore suppression, а не обещания мгновенного физического стирания каждой копии.
-
-## 8. Работа с Codex при серверном бюджете
-
-Codex может готовить небольшие патчи, тесты, migrations и runbooks. Основатель остаётся владельцем требований, доступов, выпуска и инцидентов. «Написано AI» не снижает требования к проверке: текущий красный CI показывает практический предел локальной уверенности.
-
-Последовательность ремонта: T14 reproducibility → T01–T08 access/state → T10–T12 lifecycle/safety → T09/T13 delivery/UX → независимый review → только затем closed pilot. Каждый патч на feature branch с конкретным негативным сценарием и свежим CI. Не добавлять огромный набор тестов, зеркалящий код; сначала проверять реальные нарушения инвариантов. Нельзя ослаблять assertion ради green.
-
-Преждевременно: Kubernetes, Kafka, multi-region active-active, собственный SFU, recommendation ML, embeddings интимных разговоров, мобильные клиенты на обе платформы, бесконечная лента. Следующий документируемый инженерный milestone — **два реальных клиента и третий атакующий synthetic client проходят безопасный жизненный цикл**, включая отказ инфраструктуры. Это задача отдельного implementation PR, не данного исследования.
+Не вводить Kubernetes/Kafka/ML matching/собственный SFU/3D/две native платформы до нужды. Voice, платежи и публикации — отдельные пакеты. Не ослаблять тесты ради green; фиксировать новый SHA и evidence, сохранять исходные сбои.
