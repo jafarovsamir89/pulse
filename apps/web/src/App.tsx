@@ -1,166 +1,174 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { io, type Socket } from 'socket.io-client';
-import { messageSchema, queueRequestSchema } from '@pulse/contracts';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import type { GameAction, GameCommand, GameSnapshot } from '@pulse/contracts';
+import './game.css';
 
 const API = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/v1';
-const API_ORIGIN = API.replace(/\/v1\/?$/, '');
-type Profile = { nickname: string; language: string; avatarPreset: string; interests?: string[]; rulesAcceptedAt?: string | null };
-type Message = { id?: string; authorId: string; text: string; clientMessageId: string; createdAt?: string };
-type Session = { id: string; messages?: Message[]; offer?: { userAId: string; userBId: string } };
-type Contact = { id: string; peer: { nickname: string; avatarPreset: string; language: string }; createdAt: string };
-
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${API}${path}`, { ...options, credentials: 'include', headers: { 'content-type': 'application/json', ...options.headers } });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.message ?? `Ошибка запроса (${response.status})`);
-  return body as T;
+const storageKey = (room: string) => `pulse:g1:${room}`;
+class ApiError extends Error { constructor(message: string, readonly status: number) { super(message); } }
+async function api<T>(path: string, token?: string, body?: unknown): Promise<T> {
+  let response: Response;
+  try { response = await fetch(`${API}/local-game/rooms${path}`, { method: body ? 'POST' : 'GET', credentials: 'omit', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) }); }
+  catch { throw new ApiError('Связь прервалась. Проверь соединение и попробуй ещё раз.', 0); }
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new ApiError(Array.isArray(result.message) ? result.message[0] : result.message ?? 'Не получилось отправить ход', response.status);
+  return result as T;
 }
+function Orbit({ small = false }: { small?: boolean }) {
+  return <div className={`duet-art ${small ? 'small' : ''}`} aria-hidden="true"><div className="orbit-ring"/><div className="art-star star-one">✦</div><div className="art-star star-two">✧</div><div className="art-face face-mint"><i/><i/><b/></div><div className="art-face face-purple"><i/><i/><b/></div><span className="art-bubble">а ты как?</span></div>;
+}
+function Brand() { return <a className="game-brand" href="/" aria-label="PULSE — на главную"><span>✳</span>PULSE<span className="brand-note">play a little. feel a little.</span></a>; }
+const REACTIONS = ['✨', '😂', '🤝', '😮', '💛'];
 
 export default function App() {
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [userId, setUserId] = useState('');
-  const [session, setSession] = useState<Session | null>(null);
-  const [finishedSessionId, setFinishedSessionId] = useState('');
-  const [offerId, setOfferId] = useState('');
-  const [offerAccepted, setOfferAccepted] = useState(false);
-  const [searching, setSearching] = useState(false);
-  const [status, setStatus] = useState('');
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [text, setText] = useState('');
-  const [devIdentity, setDevIdentity] = useState<'test-adult-a' | 'test-adult-b'>('test-adult-a');
-  const [activeView, setActiveView] = useState<'match' | 'contacts' | 'profile'>('match');
-  const socket = useRef<Socket | null>(null);
-  const polling = useRef<number | null>(null);
-
-  async function loadMe() {
-    try {
-      const data = await request<{ id: string; profile: Profile | null }>('/me');
-      setUserId(data.id); setProfile(data.profile);
-    } catch { setProfile(null); }
-  }
-  useEffect(() => { void loadMe(); return () => { socket.current?.disconnect(); if (polling.current) window.clearInterval(polling.current); }; }, []);
-
-  async function devLogin(event: FormEvent) {
-    event.preventDefault(); setStatus('Подключаем локальную тестовую учётную запись…');
-    try { await request('/auth/dev-session', { method: 'POST', body: JSON.stringify({ identity: devIdentity }) }); await loadMe(); setStatus(''); }
-    catch (error) { setStatus((error as Error).message); }
-  }
-
-  async function saveProfile(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = new FormData(event.currentTarget);
-    try {
-      const data = await request<{ profile: Profile }>('/me/profile', { method: 'PATCH', body: JSON.stringify({ nickname: String(form.get('nickname')), language: String(form.get('language')), avatarPreset: 'orbit', interests: [], acceptRules: form.get('acceptRules') === 'on' }) });
-      setProfile(data.profile); setStatus('');
-    } catch (error) { setStatus((error as Error).message); }
-  }
-
-  async function refreshMatchState() {
-    try {
-      const state = await request<{ state: string; offerId?: string; session?: Session }>('/text-match/queue/current');
-      if (state.state === 'offer_pending' && state.offerId) { setOfferId(state.offerId); setSearching(false); setStatus('Нашёлся собеседник. Подтвердите встречу в течение 30 секунд.'); }
-      if (state.state === 'in_session' && state.session) { setSession(state.session); setMessages(state.session.messages ?? []); setSearching(false); setStatus('Вы встретились. Начните с лёгкого вопроса или просто поздоровайтесь.'); }
-      if (state.state === 'idle') { setSearching(false); setOfferId(''); }
-    } catch (error) { setStatus((error as Error).message); }
-  }
-  useEffect(() => { if (userId) void refreshMatchState(); }, [userId]);
-  useEffect(() => {
-    if (!session?.id) return;
-    const client = io(`${API_ORIGIN}/chat`, { withCredentials: true, transports: ['websocket', 'polling'] });
-    socket.current = client;
-    client.on('connect', () => client.emit('match.join', { sessionId: session.id }));
-    client.on('match.message', (message: Message) => setMessages(items => items.some(item => item.clientMessageId === message.clientMessageId) ? items : [...items, message]));
-    client.on('match.closed', (event: { sessionId: string; reason: 'ended' | 'blocked' }) => {
-      if (event.sessionId !== session.id) return;
-      setSession(null); setMessages([]);
-      if (event.reason === 'ended') { setFinishedSessionId(event.sessionId); setStatus('Собеседник завершил разговор. Вы можете решить, хотите ли остаться на связи.'); }
-      else { setFinishedSessionId(''); setStatus('Разговор завершён после блокировки. Повторная встреча исключена.'); }
-    });
-    client.on('connect_error', () => setStatus('Связь прервалась. Переподключаемся…'));
-    return () => { client.disconnect(); socket.current = null; };
-  }, [session?.id]);
-  useEffect(() => {
-    if (!searching && !offerId) return;
-    polling.current = window.setInterval(() => void refreshMatchState(), 1500);
-    return () => { if (polling.current) window.clearInterval(polling.current); polling.current = null; };
-  }, [searching, offerId]);
-
-  async function startSearch() {
-    const parsed = queueRequestSchema.safeParse({ language: profile?.language ?? 'ru', idempotencyKey: crypto.randomUUID() });
-    if (!parsed.success) { setStatus('Не удалось начать поиск.'); return; }
-    setSearching(true); setStatus('Ищем реального собеседника с совместимым языком.');
-    try { const result = await request<{ state: string; offerId?: string }>('/text-match/queue', { method: 'POST', body: JSON.stringify(parsed.data) }); if (result.offerId) setOfferId(result.offerId); }
-    catch (error) { setSearching(false); setStatus((error as Error).message); }
-  }
-  async function cancelSearch() {
-    try { await request('/text-match/queue/current', { method: 'DELETE' }); setSearching(false); setOfferId(''); setStatus('Поиск остановлен.'); }
-    catch (error) { setStatus((error as Error).message); }
-  }
-  async function answerOffer(accept: boolean) {
-    try { const result = await request<{ state: string }>(`/text-match/offers/${offerId}/${accept ? 'accept' : 'decline'}`, { method: 'POST' }); if (result.state === 'waiting_for_other') { setOfferAccepted(true); setStatus('Вы подтвердили встречу. Ожидаем ответ второго участника.'); return; } setOfferAccepted(false); setOfferId(''); await refreshMatchState(); }
-    catch (error) { setOfferId(''); setStatus((error as Error).message); }
-  }
-  function sendMessage(event: FormEvent) {
-    event.preventDefault();
-    const parsed = messageSchema.safeParse({ text, clientMessageId: crypto.randomUUID() });
-    if (!session || !parsed.success || !socket.current?.connected) { setStatus('Сообщение пока не отправлено. Проверьте соединение.'); return; }
-    const draft: Message = { authorId: userId, text: parsed.data.text, clientMessageId: parsed.data.clientMessageId, createdAt: new Date().toISOString() };
-    setMessages(items => [...items, draft]); setText('');
-    socket.current.emit('match.send', { sessionId: session.id, ...parsed.data }, (ack: { error?: string } | undefined) => { if (ack?.error) setStatus('Не удалось отправить сообщение.'); });
-  }
-  async function leave() {
-    if (!session) return;
-    try { await request(`/text-match/sessions/${session.id}/leave`, { method: 'POST' }); socket.current?.disconnect(); setFinishedSessionId(session.id); setSession(null); setMessages([]); setStatus(''); }
-    catch (error) { setStatus((error as Error).message); }
-  }
-  async function vote(wantsContact: boolean) {
-    if (!finishedSessionId) return;
-    try { const result = await request<{ status: string }>(`/text-match/sessions/${finishedSessionId}/contact-vote`, { method: 'POST', body: JSON.stringify({ wantsContact }) }); setStatus(result.status === 'ACTIVE' ? 'Вы оба согласились остаться на связи.' : wantsContact ? 'Ваш выбор сохранён. Контакт появится только при согласии обоих.' : 'Контакт не будет создан.'); setFinishedSessionId(''); }
-    catch (error) { setStatus((error as Error).message); }
-  }
-  async function safetyAction(kind: 'blocks' | 'reports') {
-    if (!session?.offer) return;
-    const targetUserId = session.offer.userAId === userId ? session.offer.userBId : session.offer.userAId;
-    try {
-      await request(`/safety/${kind}`, { method: 'POST', body: JSON.stringify(kind === 'blocks' ? { targetUserId } : { targetUserId, sessionId: session.id, category: 'other' }) });
-      if (kind === 'reports') await request(`/text-match/sessions/${session.id}/leave`, { method: 'POST' });
-      socket.current?.disconnect(); setSession(null); setMessages([]); setFinishedSessionId(''); setStatus(kind === 'blocks' ? 'Пользователь заблокирован. Повторная встреча исключена.' : 'Жалоба отправлена. Разговор завершён.');
-    }
-    catch (error) { setStatus((error as Error).message); }
-  }
-
-  if (!userId) return <main className="login-shell"><div className="brand"><span className="brand-mark">p</span>PULSE</div><section className="login-card"><p className="eyebrow">Разговор начинается просто</p><h1>Будь собой.<br /><em>Без лишних ожиданий.</em></h1><p className="intro">Короткий текстовый разговор с реальным человеком. Продолжение — только по взаимному желанию.</p>{import.meta.env.VITE_DEV_AUTH_ENABLED === 'true' ? <form onSubmit={devLogin} className="dev-login"><label htmlFor="test-identity">Локальный вход для разработки</label><select id="test-identity" value={devIdentity} onChange={e => setDevIdentity(e.target.value as typeof devIdentity)}><option value="test-adult-a">Тестовый взрослый A</option><option value="test-adult-b">Тестовый взрослый B</option></select><button className="primary">Войти в локальную среду <span>↗</span></button></form> : <p className="notice">Регистрация временно закрыта: подключение настоящего провайдера возраста ещё не настроено.</p>}<p className="legal">Только 18+. Не показываем email и личные данные собеседнику. Это локальная alpha-версия.</p>{status && <p role="status" className="feedback">{status}</p>}</section><footer>Псевдонимы · взаимное согласие · право уйти в любой момент</footer></main>;
-  if (activeView === 'contacts') return <ContactsPage onBack={() => setActiveView('match')} userId={userId} />;
-  if (activeView === 'profile' && profile) return <ProfilePage profile={profile} onBack={() => setActiveView('match')} onLogout={async () => { await request('/auth/logout', { method: 'POST' }); setUserId(''); setProfile(null); setActiveView('match'); }} onDelete={async () => { await request('/me', { method: 'DELETE' }); setUserId(''); setProfile(null); setStatus('Запрос на удаление аккаунта принят.'); }} />;
-  if (!profile) return <main className="login-shell"><section className="login-card"><p className="eyebrow">Твоя анкета</p><h1>Как к тебе<br /><em>обращаться?</em></h1><p className="intro">Псевдоним и язык помогают подобрать разговор. Личные данные другим участникам не видны.</p><form onSubmit={saveProfile} className="dev-login"><label htmlFor="nickname">Псевдоним</label><input id="nickname" name="nickname" minLength={2} maxLength={32} placeholder="Например, Лира" required /><label htmlFor="language">Язык общения</label><select id="language" name="language"><option value="ru">Русский</option><option value="az">Azərbaycan dili</option><option value="en">English</option></select><label className="check"><input type="checkbox" name="acceptRules" required /> Я принимаю правила общения</label><button className="primary">Сохранить профиль <span>↗</span></button></form>{status && <p role="status" className="feedback">{status}</p>}</section></main>;
-
-  return <div className="app-shell"><header className="topbar"><a className="brand" href="#home"><span className="brand-mark">p</span>PULSE</a><div className="top-actions"><span className="user-chip"><span className="avatar">{profile.nickname.slice(0, 1)}</span>{profile.nickname}</span><button className="icon-button" aria-label="Выйти" onClick={async () => { await request('/auth/logout', { method: 'POST' }); setUserId(''); setProfile(null); }}>↗</button></div></header><main className="dashboard"><aside className="side-note"><span className="eyebrow">ТВОЁ ПРОСТРАНСТВО</span><h2>Близость начинается<br />с простого «привет».</h2><p>Без гонки за лайками. Без обязательных фото. Просто короткий разговор, если оба готовы.</p><div className="privacy-note"><span>✳</span><div><strong>Твои границы важны</strong><small>Можно уйти, пожаловаться или заблокировать в любой момент.</small></div></div></aside><section className="match-card"><div className="card-topline"><span className="pill"><i /> TEXT MATCH</span><button className="text-button" onClick={async () => { await request('/auth/logout', { method: 'POST' }); setUserId(''); setProfile(null); }}>Выйти</button></div>{session ? <><p className="eyebrow">ВАШ РАЗГОВОР</p><h1>Начните с простого.</h1><p className="subcopy">Вы оба подтвердили встречу. Никаких обязательств продолжать.</p><div className="chat-window" aria-live="polite">{messages.map((message, i) => <div key={message.clientMessageId || message.id || i} className={`bubble ${message.authorId === userId ? 'mine' : ''}`}><span>{message.text}</span></div>)}</div><form className="message-form" onSubmit={sendMessage}><input aria-label="Ваше сообщение" maxLength={1000} value={text} onChange={e => setText(e.target.value)} placeholder="Напиши привет…" /><button aria-label="Отправить" disabled={!text.trim()}>↑</button></form><div className="session-actions"><button className="quiet-button" onClick={() => void safetyAction('reports')}>Пожаловаться</button><button className="quiet-button" onClick={() => void safetyAction('blocks')}>Заблокировать</button><button className="quiet-button danger" onClick={() => void leave()}>Завершить</button></div></> : finishedSessionId ? <><div className="match-orbit"><span>✳</span></div><p className="eyebrow">РАЗГОВОР ЗАВЕРШЁН</p><h1>Хотите остаться<br /><em>на связи?</em></h1><p className="subcopy">Контакт и постоянные сообщения появятся только при двух ответах «Да».</p><div className="offer-actions"><button className="primary" onClick={() => void vote(true)}>Да, продолжить общение <span>↗</span></button><button className="quiet-button" onClick={() => void vote(false)}>Нет, завершить</button></div></> : offerId ? <><div className="match-orbit"><span>✳</span></div><p className="eyebrow">СОБЕСЕДНИК НАЙДЕН</p><h1>Готовы познакомиться?</h1><p className="subcopy">Оба должны подтвердить встречу. Если кто-то не готов, поиск завершится без давления.</p><div className="offer-actions"><button className="primary" disabled={offerAccepted} onClick={() => void answerOffer(true)}>{offerAccepted ? "Ожидаем ответ второго участника" : "Подтвердить встречу"} <span>↗</span></button>{!offerAccepted && <button className="quiet-button" onClick={() => void answerOffer(false)}>Не сейчас</button>}</div></> : searching ? <><div className="match-orbit searching"><span>✳</span></div><p className="eyebrow">ТИХО ИЩЕМ</p><h1>Настоящий собеседник.<br /><em>Когда он будет рядом.</em></h1><p className="subcopy">Подбираем человека, который сейчас тоже ищет разговор на {profile.language === 'ru' ? 'русском' : profile.language === 'az' ? 'азербайджанском' : 'английском'}.</p><div className="status-card"><span className="pulse-dot" />В очереди — только реальные участники. Мы не создаём фальшивых профилей.</div><button className="quiet-button" onClick={() => void cancelSearch()}>Остановить поиск</button></> : <><div className="match-orbit"><span>✳</span></div><p className="eyebrow">КОРОТКИЙ ТЕКСТОВЫЙ РАЗГОВОР</p><h1>Хочется с кем-то<br /><em>поговорить?</em></h1><p className="subcopy">Найдём одного реального собеседника с общим языком. Сначала вы оба подтвердите встречу.</p><button className="primary find-button" onClick={() => void startSearch()}>Найти собеседника <span>↗</span></button><p className="tiny-note">Обычно несколько минут в активные часы. Ожидание честное — без ботов и имитации онлайна.</p></>}{status && <p role="status" className="feedback">{status}</p>}</section><aside className="right-rail"><div className="topic-card"><span className="eyebrow">ЛЁГКИЙ СТАРТ</span><h3>Если не знаешь,<br />что написать</h3><p>«Какой маленький момент сегодня сделал день лучше?»</p><span className="spark">✳</span></div><div className="principle"><span>01</span><div><strong>Сначала коротко</strong><small>Никаких обязательств.</small></div></div><div className="principle"><span>02</span><div><strong>Продолжить — вдвоём</strong><small>Постоянный контакт только по взаимному согласию.</small></div></div></aside></main><nav className="bottom-nav" aria-label="Навигация"><button className="nav-item active" onClick={() => setActiveView('match')}>◉ <small>Общение</small></button><button className="nav-item" disabled>▦ <small>Комнаты · позже</small></button><button className="nav-item" onClick={() => setActiveView('contacts')}>♡ <small>Связи</small></button><button className="nav-item" onClick={() => setActiveView('profile')}>◌ <small>Профиль</small></button></nav></div>;
-}
-
-function ContactsPage({ onBack, userId }: { onBack: () => void; userId: string }) {
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [active, setActive] = useState<Contact | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [text, setText] = useState('');
+  const initialRoom = new URLSearchParams(window.location.search).get('room') ?? '';
+  const [roomId, setRoomId] = useState(initialRoom);
+  const [token, setToken] = useState(() => initialRoom ? sessionStorage.getItem(storageKey(initialRoom)) ?? '' : '');
+  const [game, setGame] = useState<GameSnapshot | null>(null);
+  const latest = useRef<GameSnapshot | null>(null);
+  const [nickname, setNickname] = useState('');
+  const [adult, setAdult] = useState(false);
+  const [pace, setPace] = useState<'normal' | 'relaxed'>('normal');
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  useEffect(() => { void request<Contact[]>('/text-match/contacts').then(setContacts).catch(e => setError((e as Error).message)); }, []);
-  async function openContact(contact: Contact) {
-    setActive(contact); setError('');
-    try { setMessages(await request<Message[]>(`/text-match/contacts/${contact.id}/messages`)); }
-    catch (e) { setError((e as Error).message); }
-  }
-  async function send(event: FormEvent) {
-    event.preventDefault(); if (!active || !text.trim()) return;
-    const input = { text: text.trim(), clientMessageId: crypto.randomUUID() };
-    try { const message = await request<Message>(`/text-match/contacts/${active.id}/messages`, { method: 'POST', body: JSON.stringify(input) }); setMessages(items => [...items, message]); setText(''); }
-    catch (e) { setError((e as Error).message); }
-  }
-  return <AppSubpage title="Связи" onBack={onBack}><p className="subcopy">Здесь только взаимно сохранённые контакты. Без согласия обоих постоянные сообщения недоступны.</p><div className="contact-layout"><div className="contact-list">{contacts.length ? contacts.map(contact => <button key={contact.id} className={`contact-row ${active?.id === contact.id ? 'selected' : ''}`} onClick={() => void openContact(contact)}><span className="avatar">{contact.peer.nickname.slice(0, 1)}</span><span><strong>{contact.peer.nickname}</strong><small>Взаимный контакт</small></span></button>) : <p className="empty-state">Пока нет контактов. После разговора вы оба сможете решить, хотите ли продолжить общение.</p>}</div>{active && <section className="contact-chat"><h2>{active.peer.nickname}</h2><div className="chat-window">{messages.map(message => <div key={message.clientMessageId} className={`bubble ${message.authorId === userId ? 'mine' : ''}`}>{message.text}</div>)}</div><form className="message-form" onSubmit={send}><input aria-label="Сообщение контакту" value={text} maxLength={1000} onChange={e => setText(e.target.value)} placeholder="Напиши сообщение…" /><button aria-label="Отправить" disabled={!text.trim()}>↑</button></form></section>}</div>{error && <p role="status" className="feedback">{error}</p>}</AppSubpage>;
-}
+  const [offline, setOffline] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [clock, setClock] = useState(Date.now());
+  const [leaveConfirm, setLeaveConfirm] = useState(false);
+  const exitDialog = useRef<HTMLElement | null>(null);
+  const [pending, setPending] = useState<GameCommand | null>(null);
+  const serverOffset = useRef(0);
+  const apply = useCallback((snapshot: GameSnapshot) => {
+    if (!latest.current || snapshot.version >= latest.current.version) {
+      latest.current = snapshot; setGame(snapshot); serverOffset.current = snapshot.serverNow - Date.now();
+    }
+  }, []);
+  useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 250); return () => clearInterval(timer); }, []);
+  useEffect(() => {
+    if (!leaveConfirm) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const buttons = exitDialog.current?.querySelectorAll<HTMLButtonElement>('button');
+    buttons?.[0]?.focus();
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setLeaveConfirm(false);
+      if (event.key === 'Tab' && buttons?.length) {
+        const first = buttons[0]!; const last = buttons[buttons.length - 1]!;
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener('keydown', keydown);
+    return () => { document.removeEventListener('keydown', keydown); previous?.focus(); };
+  }, [leaveConfirm]);
+  useEffect(() => {
+    if (!roomId || !token) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    async function poll() {
+      try {
+        const snapshot = await api<GameSnapshot>(`/${roomId}`, token);
+        if (stopped) return;
+        apply(snapshot); setOffline(false);
+      } catch (cause) {
+        if (stopped) return;
+        const failure = cause as ApiError;
+        if ([403, 404].includes(failure.status)) { setError(failure.message); setToken(''); sessionStorage.removeItem(storageKey(roomId)); }
+        else setOffline(true);
+      }
+      if (!stopped) timer = setTimeout(poll, document.hidden ? 1400 : 550);
+    }
+    void poll();
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [roomId, token, apply]);
+  useEffect(() => {
+    if (pending && game?.lastCommandIds.includes(pending.commandId)) { setPending(null); setError(''); }
+  }, [game, pending]);
 
-function ProfilePage({ profile, onBack, onLogout, onDelete }: { profile: Profile; onBack: () => void; onLogout: () => Promise<void>; onDelete: () => Promise<void> }) {
-  return <AppSubpage title="Профиль" onBack={onBack}><div className="profile-summary"><span className="avatar large">{profile.nickname.slice(0, 1)}</span><div><h2>{profile.nickname}</h2><p>{profile.language.toUpperCase()} · абстрактный аватар</p></div></div><p className="subcopy">Другим участникам видны только псевдоним, язык и выбранный пресет аватара.</p><div className="profile-actions"><button className="quiet-button" onClick={() => void onLogout()}>Выйти из аккаунта</button><button className="quiet-button danger" onClick={() => void onDelete()}>Запросить удаление аккаунта</button></div><p className="tiny-note">Запрос остановит доступ к аккаунту. Фактические сроки удаления данных и законные исключения требуют отдельной утверждённой политики хранения.</p></AppSubpage>;
-}
+  async function enter(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError('');
+    try {
+      const result = await api<{ token: string; snapshot: GameSnapshot }>(roomId ? `/${roomId}/join` : '', undefined, { nickname: nickname.trim(), adult, pace });
+      sessionStorage.setItem(storageKey(result.snapshot.roomId), result.token);
+      setRoomId(result.snapshot.roomId); setToken(result.token); apply(result.snapshot);
+      window.history.replaceState({}, '', `?room=${result.snapshot.roomId}`);
+    } catch (cause) { setError((cause as Error).message); }
+    finally { setBusy(false); }
+  }
+  async function send(action: GameAction, extra: { choice?: number; reaction?: string } = {}, retry?: GameCommand) {
+    const current = latest.current;
+    if (!current || busy) return;
+    const command: GameCommand = retry ?? { commandId: crypto.randomUUID(), gameId: current.gameId, roundId: current.round.id, expectedVersion: current.version, action, ...extra };
+    setBusy(true); setError(''); setPending(command);
+    try {
+      let result: GameSnapshot;
+      try { result = await api<GameSnapshot>(`/${roomId}/commands`, token, command); }
+      catch (cause) {
+        if (!(cause instanceof ApiError) || cause.status !== 409) throw cause;
+        const fresh = await api<GameSnapshot>(`/${roomId}`, token); apply(fresh);
+        if (!fresh.lastCommandIds.includes(command.commandId) && (fresh.gameId !== command.gameId || fresh.round.id !== command.roundId)) throw new ApiError('Раунд уже сменился. Продолжаем с новой карточкой.', 400);
+        result = await api<GameSnapshot>(`/${roomId}/commands`, token, { ...command, expectedVersion: fresh.version });
+      }
+      apply(result); setPending(null); setOffline(false);
+    } catch (cause) {
+      const failure = cause as ApiError;
+      setError(failure.message);
+      if (failure.status !== 0 && failure.status < 500) setPending(null);
+    } finally { setBusy(false); }
+  }
+  const me = game?.players.find(p => p.id === game.myId);
+  const peer = game?.players.find(p => p.id !== game.myId);
+  const now = clock + serverOffset.current;
+  const seconds = game?.deadline ? Math.max(0, Math.ceil((game.deadline - now) / 1000)) : null;
+  const invite = `${window.location.origin}/?room=${roomId}`;
+  const disabled = busy || offline || Boolean(pending);
+  const act = (action: GameAction, extra = {}) => void send(action, extra);
+  async function copyLink() {
+    try { await navigator.clipboard.writeText(invite); setCopied(true); setTimeout(() => setCopied(false), 2200); }
+    catch { setError('Скопируй ссылку из поля приглашения.'); }
+  }
+  function feedback() {
+    return <>{offline && <div className="game-notice" role="status">Восстанавливаем связь. Твои принятые ходы сохранены.</div>}{error && <div className="game-error" role="alert">{error}{pending && !busy && <button onClick={() => void send(pending.action, {}, pending)}>Повторить отправку</button>}</div>}</>;
+  }
+  if (!token || !game || !me) return <div className="game-app"><header className="game-topbar"><Brand/><span className="local-label">ЛОКАЛЬНАЯ ИГРА · 18+</span></header>
+    <main className="welcome-layout"><section className="welcome-copy"><div className="overline"><span className="live-dot"/> ОДНА КОМНАТА. ДВОЕ. МАЛЕНЬКОЕ ПРИКЛЮЧЕНИЕ.</div><h1>А ты бы<br/><em>что выбрал?</em></h1><p className="hero-copy">Шесть неожиданных вопросов. Один общий финал.<br/>Угадывайте друг друга — и находите поводы улыбнуться.</p><Orbit/><div className="how-it-works"><span><b>01</b> Выбери за себя</span><span><b>02</b> Угадай другого</span><span><b>03</b> Удивись вместе</span></div></section>
+    <section className="entry-card"><span className="mini-tag">УГАДАЙ МЕНЯ <i>✦</i></span><h2>{roomId ? 'Тебя пригласили поиграть' : 'Хороший вечер начинается с «давай»'}</h2><p>{roomId ? 'В комнате будет только двое. Осталось представиться и зайти.' : 'Создай комнату и отправь ссылку человеку, с которым хочется провести немного времени.'}</p>
+    {token && !game ? <div className="loading-state" role="status"><span className="pulse-loader"/> Возвращаемся в комнату…</div> : <form onSubmit={event => void enter(event)}><label className="field-label" htmlFor="nickname">Как тебя называть?</label><input id="nickname" name="nickname" autoComplete="nickname" placeholder="Твоё имя или ник" maxLength={24} value={nickname} onChange={event => setNickname(event.target.value)} required/>
+    {!roomId && <fieldset className="pace-picker"><legend>Темп вечера</legend><label><input type="radio" name="pace" checked={pace === 'normal'} onChange={() => setPace('normal')}/> Обычный</label><label><input type="radio" name="pace" checked={pace === 'relaxed'} onChange={() => setPace('relaxed')}/> Без спешки</label></fieldset>}
+    <label className="adult-check"><input type="checkbox" checked={adult} onChange={event => setAdult(event.target.checked)} required/><span>Мне есть 18 лет. Играю добровольно, любой раунд можно пропустить.</span></label><button className="game-primary full" disabled={busy || !adult || !nickname.trim()}>{busy ? 'Открываем комнату…' : roomId ? 'Присоединиться' : 'Создать комнату'}<span>↗</span></button></form>}
+    {feedback()}{roomId && <a className="subtle-link" href="/">Создать свою комнату</a>}<div className="entry-footnote">7 раундов · для двоих · без победителей и проигравших</div></section></main><footer className="game-footer"><span>Приходи за игрой, возвращайся к своим.</span><span>Пробная колода · только по приглашению</span></footer></div>;
 
-function AppSubpage({ title, onBack, children }: { title: string; onBack: () => void; children: ReactNode }) {
-  return <div className="app-shell"><header className="topbar"><a className="brand" href="#home"><span className="brand-mark">p</span>PULSE</a><button className="quiet-button" onClick={onBack}>← Назад</button></header><main className="subpage"><p className="eyebrow">PULSE · ПРОСТРАНСТВО ОБЩЕНИЯ</p><h1>{title}</h1>{children}</main></div>;
+  function options(action: GameAction, selected: number | null) {
+    return <div className="answer-options">{game!.round.options.map((option, index) => <button key={index} className={`answer-option ${selected === index ? 'selected' : ''}`} disabled={disabled || me!.submitted} onClick={() => act(action, { choice: index })}><span className="option-letter">{String.fromCharCode(65 + index)}</span><span>{option}</span><span className="option-check">{selected === index ? '✓' : '↗'}</span></button>)}</div>;
+  }
+  let panel: ReactNode;
+  if (game.phase === 'LOBBY') panel = <><div className="card-eyebrow">ВАША КОМНАТА ГОТОВА</div><h1>{peer ? 'Вы на месте. Начнём?' : 'Кое-кого не хватает'}</h1><p className="card-description">{peer ? 'Выбирайте за себя, угадывайте друг друга. Ответы откроются одновременно. За точную догадку — одно очко, за промах — новая история.' : 'Отправь приглашение. Здесь будет только твоя пара — случайных гостей не подселяем.'}</p><Orbit small/>
+    <div className="invite-box"><label htmlFor="invite">Ссылка на вашу встречу</label><div><input id="invite" value={invite} readOnly onFocus={event => event.currentTarget.select()}/><button onClick={() => void copyLink()} aria-label="Копировать приглашение">{copied ? '✓' : '⧉'}</button></div></div>
+    {!peer && <a className="subtle-link" href={invite} target="_blank" rel="noopener noreferrer">Открыть приглашение во второй вкладке ↗</a>}
+    <div className="room-rules"><span>◷ {game.pace === 'relaxed' ? 'Более медленный темп' : 'Обычный темп'}</span><span>◇ Ответы скрыты до раскрытия</span></div>
+    <button className="game-primary full" disabled={disabled || !peer || me.ready} onClick={() => act('ready')}>{me.ready ? `Ждём, когда ${peer?.nickname} будет готов…` : peer ? 'Я готов, поехали' : 'Ждём второго участника'}<span>✦</span></button></>;
+  else if (game.phase === 'ANSWER' || game.phase === 'GUESS') panel = <><div className="card-eyebrow">{game.phase === 'ANSWER' ? 'СНАЧАЛА — ПРО ТЕБЯ' : 'ТЕПЕРЬ ПОПРОБУЙ УГАДАТЬ'}</div><h1>{game.round.prompt}</h1><p className="card-description">{game.phase === 'ANSWER' ? 'Что ближе именно тебе? Партнёр пока не увидит твой выбор.' : 'Какой вариант ближе партнёру? Твой собственный ответ уже сохранён.'}</p>
+    {options(game.phase === 'ANSWER' ? 'answer' : 'guess', game.phase === 'ANSWER' ? game.myChoice : game.myGuess)}
+    {me.submitted && <div className="saved-state" role="status"><span>✓</span> {game.phase === 'ANSWER' ? 'Твой выбор сохранён' : 'Догадка сохранена'}. Даём партнёру немного времени.</div>}
+    <div className="turn-actions"><button className="game-text-button" disabled={disabled} onClick={() => act('skip')}>Пропустить раунд для обоих</button><button className="game-text-button" disabled={disabled || game.extended} onClick={() => act('extend')}>{game.extended ? 'Время продлено' : '+15 секунд'}</button></div></>;
+  else if (game.phase === 'REVEAL' || game.phase === 'DISCUSSION') panel = <><div className="card-eyebrow">{game.skipped ? 'БЕЗ ОБЪЯСНЕНИЙ И ШТРАФОВ' : 'ВОТ ОНО КАК'}</div><h1>{game.skipped ? 'Этот вопрос отпускаем' : 'Чуть больше знаем друг друга'}</h1><p className="card-description">{game.skipped ? 'Ответы этого раунда скрыты, очки не начисляются. Впереди новая карточка.' : game.round.prompt}</p>
+    {!game.skipped && <div className="reveal-grid">{game.reveal?.map(reveal => { const player = game.players.find(p => p.id === reveal.playerId)!; return <article key={player.id} className={`reveal-card seat-${player.seat}`}><span>{player.id === me.id ? 'Твой выбор' : player.nickname}</span><h2>{game.round.options[reveal.answer]}</h2><div className="reveal-result">{reveal.guess === null ? 'Догадку пропустили' : reveal.correct ? '✦ Догадка точная · +1' : 'Догадка не совпала — бывает'}</div></article>; })}</div>}
+    {!game.skipped && <div className="conversation-seed"><span>ЕСТЬ О ЧЁМ ПОБОЛТАТЬ</span><p>{game.round.followUp}</p></div>}
+    <button className="game-primary full" disabled={disabled || game.phase === 'REVEAL' || me.nextReady} onClick={() => act('next')}>{game.phase === 'REVEAL' ? 'Момент на удивление…' : me.nextReady ? 'Партнёр ещё рассматривает ответы…' : game.round.number === 6 ? 'К общему финалу' : 'Следующая карточка'}<span>→</span></button></>;
+  else if (game.phase === 'FINAL') panel = <><div className="card-eyebrow">РАУНД 7 · ОДНА ИСТОРИЯ НА ДВОИХ</div><h1>{game.round.prompt}</h1><p className="card-description">{game.round.followUp} Здесь нет правильного ответа и не нужны очки.</p>{options('final', game.myChoice)}{me.submitted && <div className="saved-state" role="status"><span>✓</span> Твоя часть готова. Остался один штрих…</div>}<div className="turn-actions"><button className="game-text-button" disabled={disabled} onClick={() => act('skip')}>Оставить финал открытым</button><button className="game-text-button" disabled={disabled || game.extended} onClick={() => act('extend')}>+15 секунд</button></div></>;
+  else if (game.phase === 'PAUSED') panel = <><div className="card-eyebrow">ВОЗЬМЁМ НЕБОЛЬШУЮ ПАУЗУ</div><h1>Кажется, кто-то отвлёкся</h1><p className="card-description">Ничего страшного. Если вы оба здесь, пропустим этот раунд и продолжим. Через 30 секунд без ответа встреча завершится.</p><Orbit small/><button className="game-primary full" disabled={disabled || !me.needsReturn} onClick={() => act('here')}>{me.needsReturn ? 'Я здесь, можно продолжать' : 'Ждём возвращения партнёра…'}<span>↗</span></button></>;
+  else if (game.phase === 'RESULTS') {
+    const ownScore = game.scores.find(s => s.playerId === me.id)!;
+    panel = <><div className="card-eyebrow">ВОТ КАКОЙ ВЕЧЕР У НАС ПОЛУЧИЛСЯ</div><h1>Маленькая история.<br/><em>Теперь ваша.</em></h1><div className="story-card"><span>✦</span><p>{game.story}</p><small>{me.nickname} + {peer?.nickname}</small></div><div className="score-summary"><b>{ownScore.correct}<span> / {ownScore.opportunities}</span></b><p>Твоих точных догадок<br/><small>За эту партию. Людей в процентах не измеряем.</small></p></div><button className="game-primary full" disabled={disabled || me.rematchReady} onClick={() => act('rematch')}>{me.rematchReady ? 'Твоё «ещё» услышано. Ждём второго…' : 'Ещё одну?'}<span>↻</span></button><button className="game-secondary full" disabled={disabled} onClick={() => act('leave')}>На сегодня всё</button><p className="quiet-caption">Новая партия начнётся, только если оба захотят.</p></>;
+  } else panel = <><div className="card-eyebrow">ДО НОВОЙ ИСТОРИИ</div><h1>Было здорово<br/><em>пересечься.</em></h1><Orbit small/><p className="card-description">{game.endReason}</p><a className="game-primary full" href="/">Новая встреча<span>↗</span></a></>;
+
+  return <div className="game-app"><header className="game-topbar"><Brand/><div className="top-room"><span className="local-label">{game.phase === 'LOBBY' ? 'КОМНАТА ДЛЯ ДВОИХ' : 'УГАДАЙ МЕНЯ'}</span>{!['ENDED', 'RESULTS'].includes(game.phase) && <button className="game-text-button" onClick={() => setLeaveConfirm(true)}>Выйти</button>}</div></header>
+    <main className="play-layout"><aside className="game-sidebar"><span className="overline">ВАША МАЛЕНЬКАЯ КОМПАНИЯ</span><div className="player-list">{[0, 1].map(seat => { const player = game.players[seat]; const present = player && now - player.lastSeenAt < 10000; return <div className="player-row" key={seat}><div className={`player-avatar seat-${seat}`}>{player?.nickname.slice(0, 1).toUpperCase() ?? '+'}</div><div><strong>{player?.nickname ?? 'Кто-то особенный'}{player?.id === me.id && <small> · ты</small>}</strong><span>{!player ? 'Ждём приглашённого' : !present ? 'Переподключается…' : game.phase === 'LOBBY' ? player.ready ? 'Готов к игре' : 'Знакомится с правилами' : player.submitted ? 'Выбор сделан ✓' : 'В комнате'}</span></div></div>; })}</div>
+    <div className="sidebar-note"><span>✳</span><p>Можно угадать выбор.<br/>А можно приятно удивиться.</p></div><div className="game-principles"><p>◇ Никаких неловких признаний</p><p>◇ Любой раунд можно пропустить</p><p>◇ Никаких очков за скорость</p></div></aside>
+    <section className="play-center"><div className="round-strip"><span>{game.phase === 'LOBBY' ? 'ПЕРЕД СТАРТОМ' : game.phase === 'ENDED' ? 'ВСТРЕЧА ЗАВЕРШЕНА' : `РАУНД ${game.round.number} ИЗ 7`}</span>{seconds !== null && <span className={`game-timer ${seconds <= 5 ? 'timer-low' : ''}`} aria-label={`Осталось ${seconds} секунд`}>◷ {seconds} с</span>}</div>{!['LOBBY', 'ENDED'].includes(game.phase) && <div className="round-track" aria-label={`Раунд ${game.round.number} из 7`}>{Array.from({ length: 7 }, (_, i) => <i className={i < game.round.number ? 'filled' : ''} key={i}/>)}</div>}
+    <div className={`game-card phase-${game.phase}`} key={`${game.gameId}-${game.round.number}-${game.phase}`}><div className="card-corner" aria-hidden="true">✦</div>{panel}{feedback()}</div>
+    {!['LOBBY', 'ENDED'].includes(game.phase) && <div className="reaction-bar"><span>Вместо тысячи слов</span><div>{REACTIONS.map(emoji => <button key={emoji} disabled={disabled} aria-label={`Реакция ${emoji}`} onClick={() => act('react', { reaction: emoji })}>{emoji}</button>)}</div></div>}
+    <div className="flying-reactions" aria-live="polite">{game.reactions.filter(r => now - r.at < 3500).map(reaction => <span key={reaction.id}>{reaction.emoji}<small>{game.players.find(p => p.id === reaction.playerId)?.nickname}</small></span>)}</div></section>
+    <aside className="right-note"><span className="overline">СЕГОДНЯ В КОЛОДЕ</span><h2>{game.phase === 'LOBBY' ? 'Чуть-чуть магии. Много любопытства.' : game.round.topic}</h2><p>{game.phase === 'GUESS' ? 'Выбор партнёра всё ещё скрыт. Прислушайся к интуиции.' : 'Здесь важнее повод поговорить, чем правильный ответ.'}</p><div className="tiny-orbit" aria-hidden="true">✧</div></aside></main>
+    <footer className="game-footer"><span>Приходи за игрой, возвращайся к своим.</span><span>Локальная встреча · 18+</span></footer>
+    {leaveConfirm && <div className="modal-backdrop"><section ref={exitDialog} className="exit-dialog" role="dialog" aria-modal="true" aria-labelledby="exit-title"><h2 id="exit-title">Закончить встречу?</h2><p>Можно уйти в любой момент. Партнёр увидит, что игра завершена.</p><button className="game-primary full" disabled={busy} onClick={() => { setLeaveConfirm(false); act('leave'); }}>Да, на сегодня всё</button><button className="game-secondary full" onClick={() => setLeaveConfirm(false)}>Остаться</button></section></div>}
+  </div>;
 }

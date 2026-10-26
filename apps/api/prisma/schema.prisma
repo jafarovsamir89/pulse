@@ -2,6 +2,15 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// Isolated invite-only local game prototype. State is projected per participant in the API.
+model LocalGameRoom {
+  id        String   @id
+  state     Json
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  @@index([expiresAt])
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")

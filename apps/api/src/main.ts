@@ -16,6 +16,6 @@ async function bootstrap() {
   app.setGlobalPrefix('v1');
   const swaggerConfig = new DocumentBuilder().setTitle('PULSE API').setVersion('0.2').addCookieAuth('pulse_session').build();
   SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, swaggerConfig));
-  await app.listen(runtimeConfig.port, '0.0.0.0');
+  await app.listen(runtimeConfig.port, process.env.LOCAL_GAME_ENABLED === 'true' ? '127.0.0.1' : '0.0.0.0');
 }
 void bootstrap();
