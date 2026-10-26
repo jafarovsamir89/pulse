@@ -224,7 +224,7 @@ export class MatchService {
   }
 
   async sendMessage(userId: string, sessionId: string, input: MessageDto) {
-    const member = await this.db.matchMember.findFirst({ where: { sessionId, userId, leftAt: null, session: { status: 'ACTIVE' } }, include: { session: { include: { offer: true } } } });
+    const member = await this.db.matchMember.findFirst({ where: { sessionId, userId, leftAt: null, session: { status: 'ACTIVE', expiresAt: { gt: new Date() } } }, include: { session: { include: { offer: true } } } });
     if (!member) throw new ForbiddenException('Not an active session member');
     const peerId = member.session.offer.userAId === userId ? member.session.offer.userBId : member.session.offer.userAId;
     if (await this.isBlocked(userId, peerId)) throw new ForbiddenException('Messaging is disabled');
@@ -240,14 +240,14 @@ export class MatchService {
   }
 
   async leave(userId: string, sessionId: string) {
-    const member = await this.db.matchMember.findFirst({ where: { sessionId, userId, leftAt: null }, include: { session: { include: { offer: true } } } });
-    if (!member) return { state: 'ended' };
-    const peerId = member.session.offer.userAId === userId ? member.session.offer.userBId : member.session.offer.userAId;
+    const member = await this.db.matchMember.findFirst({ where: { sessionId, userId }, include: { session: { include: { offer: true } } } });
+    if (!member) throw new ForbiddenException('Session membership required');
+    if (member.leftAt) return { state: 'ended' };
     await this.db.$transaction(async tx => {
       await tx.matchMember.update({ where: { id: member.id }, data: { leftAt: new Date() } });
       await tx.matchSession.update({ where: { id: sessionId }, data: { status: 'ENDED', endedAt: new Date() } });
       await tx.contactEdge.upsert({ where: { sessionId }, update: {}, create: { sessionId, userAId: member.session.offer.userAId, userBId: member.session.offer.userBId } });
-      await tx.activeReservation.deleteMany({ where: { userId: { in: [userId, peerId] } } });
+      await tx.activeReservation.deleteMany({ where: { offerId: member.session.offerId } });
     });
     return { state: 'ended' };
   }

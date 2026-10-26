@@ -46,6 +46,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @pulse/api db:generate
       - run: PGPASSWORD=pulse_local_only createdb -h 127.0.0.1 -U pulse pulse_test
       - run: pnpm --filter @pulse/api exec prisma migrate deploy
       - run: pnpm lint

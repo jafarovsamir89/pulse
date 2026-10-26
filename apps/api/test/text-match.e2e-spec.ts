@@ -5,11 +5,9 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma.service';
 import { RedisService } from '../src/redis.service';
+import { requireLocalTestDatabase } from './local-database';
 
-const testDatabase = process.env.PULSE_TEST_DATABASE_URL;
-if (!testDatabase || !testDatabase.includes('127.0.0.1') || !new URL(testDatabase).pathname.endsWith('/pulse_test')) {
-  throw new Error('Set PULSE_TEST_DATABASE_URL to the dedicated /pulse_test database on 127.0.0.1 before running API integration tests.');
-}
+const testDatabase = requireLocalTestDatabase(process.env.PULSE_TEST_DATABASE_URL);
 process.env.DATABASE_URL = testDatabase;
 process.env.NODE_ENV = 'test';
 process.env.DEV_TEST_AUTH_ENABLED = 'true';
