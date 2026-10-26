@@ -72,3 +72,40 @@
 - Ограничения: API E2E подменяет Redis allow; web/contracts имеют 0 собственных тестов; bundle 615 kB с предупреждением; гонка между проверкой TTL и записью относится к открытому T05. Публичная готовность не заявлена.
 - Основной checkout после commit содержит только намеренный ?? AGENTS.md. Стратегический PR №2 получает обновление двух журналов; продукт/финансы/архивы не менялись, полный валидатор документов не повторялся.
 - Точное продолжение: T02 — тесты для stale joined socket после logout, expiry, suspension и deletion, затем решение по revocation/private delivery. Далее T03–T05/T07/T09–T13, и только после gates настоящий G1. P01 целиком открыт.
+
+## 2026-10-26 · P01-B / T02 · отзыв доступа и приватная доставка
+
+- Прямое поручение владельца: «делай», продолжение P01. Ветка codex/sprint-1-foundation-text-match, исходный SHA a099dda; PR №1 открыт, состояние перепроверено.
+- Новые 8 реальных API/DB/socket регрессий сначала дали 8 FAIL на a099dda: logout нескольких вкладок, пропущенный revoke/expiry/suspension/age-denied, deletion, moderator suspension, idle auth expiry. Evidence: .tmp/p01-b-evidence/red.log основного checkout. Исходный аудит не переписан.
+- Добавлен RealtimeAccess: локальный реестр подключений по hash токена/пользователю, таймер auth expiry, закрытие после commit logout/deletion/suspension. Room broadcast заменён проверкой каждого получателя, включая match.closed. Текущие auth/user/member/session/block проверяются в БД; ошибки авторизации/DB приводят к disconnect без отправки payload.
+- Для гонки revoke/delivery выбран read-lock user → auth → member → match session; синхронный emit выполняется внутри короткой read-транзакции. Внешняя отправка уже разрешённого пакета клиенту может завершиться после отзыва: отменить сетевой пакет, поставленный в очередь до commit, невозможно. Новое enqueue после commit запрещено; durable replay/ACK не входит в T02.
+- Проверены актуальные первичные Socket.IO server API и Prisma v6 transactions через Context7; новых зависимостей/плагинов/миграций нет. Обычный singleton API, без multi-node adapter: межпроцессный push-invalidation не реализован; повторная DB-проверка остаётся обязательной перед доставкой.
+- Дополнительно 3 теста: реальная блокировка auth row незавершённой транзакцией revoke (pg_blocking_pids подтверждает ожидание доставки), fail-closed при инъекции DB error, фильтрация match.closed. Полный E2E PASS: 18 сценариев / 3 suites. Redis allow в E2E по-прежнему подменён.
+- Evidence: .tmp/p01-b-evidence/green-revocation.log (первые 8 PASS), green-e2e.log (18 PASS); локальные endpoints как в P01-A. Полный pnpm verify выполняется, затем code commit/push и CI конкретного нового SHA.
+- Открыты T03–T05/T07/T09–T13. Ближайший после T02 — T03: блокировка A→B не должна отменять независимые queue/offer/session B↔C. Не объявлять P01 или G1 готовыми.
+
+### P01-B — результат публикации
+
+- Commit 34ccd58db3a7d47c86cd5d18d4fdd6f5c691ad9c опубликован в PR №1. pnpm verify PASS; 18 E2E PASS; git diff --check PASS. Изменены app.module/auth/chat.gateway/match/profile/safety; добавлены realtime-access.ts и socket-revocation.e2e-spec.ts. Новых package dependencies и миграций нет.
+- Clean CI PASS на этом SHA: PR https://github.com/jafarovsamir89/pulse/actions/runs/40414375498 и push https://github.com/jafarovsamir89/pulse/actions/runs/40414370510; оба research-check PASS. T02 закрыт для текущего единственного API процесса; нагрузочная оценка row-lock delivery и межпроцессное push-invalidation остаются будущей эксплуатационной работой.
+
+## 2026-10-26 · P01-C / T03 · границы блокировки
+
+- Начат после T02 без ожидания несвязанных внешних проверок. Исходный SHA 34ccd58, та же feature branch/PR №1.
+- Пять новых real DB/API тестов сначала FAIL: блокировка снимала waiting slots, отменяла queue/reservations других пар и при повторе ломала новое приглашение. Evidence: .tmp/p01-c-evidence/red.log.
+- SafetyService.blockPair теперь изменяет offers/reservations/sessions/contacts только общей пары. Waiting slots сохраняются для других кандидатов. OFFERED queue rows отменяются лишь при фактической отмене pending offer этой пары. Idempotent повтор не трогает новый B-C offer.
+- Список закрываемых сессий читается в той же Serializable транзакции; P2034 имеет до двух retries без повторного списания rate limit. Это согласовано с существующими Serializable matching/acceptance.
+- Добавлены две гонки accept/block с обеими ориентациями offer: конечное состояние CANCELLED либо BLOCKED, без активных резервов; независимая C-D пара сохранена. Полный E2E PASS: 25 сценариев / 4 suites. .tmp/p01-c-evidence/green-block.log и green-e2e.log, endpoints/Redis mock как P01-A.
+- Полный pnpm verify выполняется перед отдельным commit/push и CI. Следующий инженерный приоритет T04/T05 (consent resurrection и конкурентная запись сообщений), затем T07/T09–T13. P01 и игра ещё не готовы.
+
+### P01-C — локальный результат и публикация
+
+- Commit 1f8bde0165c19415511b11e8326901e2e9555d02 опубликован в PR №1; изменены только safety.ts и новый block-scope.e2e-spec.ts. Полный pnpm verify PASS, полный E2E 25/25 PASS, git diff --check PASS. Результат E2E сохранён в .tmp/p01-c-evidence/green-e2e.log, verify — в verify.log.
+- PR №1 body переписан под конечный scope P01-A/B/C, с доказательствами red→green, ограничениями single-process/Redis mock и открытыми T04/T05/T07/T09–T13. Последний CI ещё выполняется, не подменять его успешным CI предыдущего SHA.
+- Основной checkout после двух focused commits содержит только намеренный ?? AGENTS.md; стратегический worktree меняет только два журнала. Production, миграции, кошельки, родительский Domino и внешние сообщения не затронуты. Автономное продолжение P01 не означает разрешения production.
+
+### P01-B/C — финальный handoff
+
+- На последнем SHA 1f8bde0165c19415511b11e8326901e2e9555d02 оба verify PASS: PR https://github.com/jafarovsamir89/pulse/actions/runs/40414805438/job/121894310489 и push https://github.com/jafarovsamir89/pulse/actions/runs/40414796849/job/121894284062. Оба research-tests также PASS. gh pr view подтвердил headRefOid и открытый PR; merge не выполнялся.
+- Короткий journal обновлён: T02/T03 закрыты в текущем single-process scope; T04/T05/T07/T09–T13 открыты. Следующее конкретное действие — детерминированная регрессия contactVote между последним положительным голосом и переводом PENDING→ACTIVE при конкурентном revoke/block; затем атомарный переход и send race. G1 пока отсутствует, пользовательских испытаний не было.
+- Передача двух журналов в существующий стратегический PR №2; diff --check PASS. Перепроверять green CI без новых изменений не требуется. Секретов, новых зависимостей или schema migrations в P01-B/C нет.

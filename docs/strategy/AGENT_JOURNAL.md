@@ -1,6 +1,6 @@
 # PULSE — текущая память руководителя
 
-**Обновлено: 26.10.2026 · P01-A выполнен, P01 продолжается.** В PR №1 опубликован a099dda: T01/T06/T08 воспроизведены и исправлены, T14 clean CI исправлен. Локальный verify, 7 интеграционных сценариев и оба чистых CI (PR/push) PASS. Следующий приоритет T02 — отзыв доступа к socket-доставке. Игра G1 пока не реализуется.
+**Обновлено: 26.10.2026 · P01-B/T02 и P01-C/T03 проверены и опубликованы.** T02 закрывает отозванный socket-доступ и проверяет каждого получателя. T03 сохраняет независимые встречи/очереди других пар при блокировке. На конечном 1f8bde0: 25 E2E, pnpm verify и оба clean CI PASS. P01 продолжается; следующий приоритет T04/T05. G1 пока не реализуется.
 
 ## Мандат и предпочтения владельца
 
@@ -20,11 +20,11 @@
 
 ## Где работа и что реально есть
 
-- Основной checkout: /Users/macbookair/Documents/domino/PULSE, ветка codex/sprint-1-foundation-text-match, последний проверенный HEAD a099dda; alpha и первый ремонт P01-A в PR №1.
+- Основной checkout: /Users/macbookair/Documents/domino/PULSE, ветка codex/sprint-1-foundation-text-match, последний проверенный HEAD 1f8bde0; alpha и ремонты P01-A/B/C в PR №1.
 - Документационный worktree: /Users/macbookair/Documents/domino/PULSE/.tmp/genesis-strategy, ветка codex/project-genesis, открытый [PR №2](https://github.com/jafarovsamir89/pulse/pull/2).
 - Последний проверенный main: 47d5756 (game-first v0.3); актуальность повторно проверить перед кодом.
 - v0.4 основной commit 20ec1e9; handoff 2841e9e; Party supplement 0c3147d; мандат U05 опубликован commit 0c78342. Финальная запись handoff может быть следующим docs commit; точный HEAD брать из git log.
-- В main/стратегической ветке нет готовой игры. Исходный аудит T01–T14 относится к SHA 2c37fb9. P01-A на a099dda исправляет T01/T06/T08 и настройку сборки T14; остальные замечания открыты. Исторический аудит не переписывать как текущий результат.
+- В main/стратегической ветке нет готовой игры. Исходный аудит T01–T14 относится к SHA 2c37fb9. P01-A на a099dda исправил T01/T06/T08/T14; P01-B на 34ccd58 — T02; P01-C на 1f8bde0 — T03. Остальные замечания открыты. Исторический аудит не переписывать как текущий результат.
 - 16 основных документов и 12 отчётов согласованы; Genesis v1 сохранён в docs/archive/genesis-v1 с SHA manifest.
 - В основном checkout дополнительно оставлена локальная копия AGENTS.md для автоматического старта с правилами, пока PR №2 не merged. Она намеренно untracked на alpha ветке; источник — AGENTS.md стратегической ветки. Не потерять и не перезаписать пользовательские правки при будущем объединении.
 
@@ -37,13 +37,15 @@ U05: проверять только AGENTS/память/ссылки и scope; 
 
 P01-A на a099dda: `pnpm verify` PASS (11 API unit, spike, lint/types, API/web build); 7 API integration PASS. Новые T01/T06/T08 сначала дали 3 FAIL на 2c37fb9. Clean CI [PR](https://github.com/jafarovsamir89/pulse/actions/runs/40413022741) и [push](https://github.com/jafarovsamir89/pulse/actions/runs/40413016540) PASS, оба research-check PASS. Redis mocked в API integration; web/contracts без собственных тестов, bundle warning сохраняется. Evidence локально: `.tmp/p01-evidence/` основного checkout.
 
+P01-B/C на 1f8bde0: `pnpm verify` PASS, 25 real DB/API/socket E2E PASS. T02 сначала 8 FAIL на a099dda, T03 сначала 5 FAIL на 34ccd58; проверки не ослаблены. Последний clean CI [PR](https://github.com/jafarovsamir89/pulse/actions/runs/40414805438) и [push](https://github.com/jafarovsamir89/pulse/actions/runs/40414796849) PASS, оба research-check PASS. Evidence `.tmp/p01-b-evidence/` и `.tmp/p01-c-evidence/`. Redis mocked; delivery проверен для одного API, distributed invalidation и нагрузочная ёмкость не доказаны. Ранее поставленный в сеть пакет нельзя отозвать; после commit нового enqueue с отозванным доступом нет.
+
 ## Что неизвестно / не делать вид, что решено
 
 Подтверждены Codex для разработки, наличие серверного бюджета и 18+. Неизвестны сумма cash cap, доступная взрослая когорта, часы человека/резерв, страны/age route, редактор/reviewer и готовность платить. Продуктовых интервью/игровых тестов ещё не проводили. Не обещать миллион пользователей или прибыль.
 
 ## Точное продолжение
 
-P01-A опубликован в PR №1 commit a099dda, без merge; clean CI подтверждён. Продолжить **T02**: регрессии на уже присоединённый socket после logout/revocation, истечения auth session, suspension и deletion; запретить дальнейшую приватную доставку. Затем T03–T05/T07/T09–T13 (включая атомарность send относительно expiry/leave/block). Не повторять весь аудит и не считать P01 завершённым. После инженерных gates — P04, один настоящий G1 на двух клиентах. Не возвращать Text Match-first из старых документов PR №1 при будущем объединении.
+P01-A/B/C опубликованы в PR №1, без merge; CI на 1f8bde0 подтверждён. Начать **T04/T05**: воспроизвести resurrection contact consent при конкурентном revoke/block и запись сообщения между проверкой прав и leave/block/expiry; исправить атомарно с real DB race tests. Потом T07 (повторная пара/contact model), T09–T13. Не повторять весь аудит и не считать P01 завершённым. После инженерных gates — P04, один настоящий G1 на двух клиентах. Не возвращать Text Match-first из старых документов PR №1 при будущем объединении.
 
 Ручные P02/P03 (24 карточки, 10 интервью, 10–20 сессий) можно готовить параллельно инженерному основанию в рамках соответствующего поручения; не заявлять, что участники уже набраны. Родительский Domino и его пользователи — другой проект.
 
