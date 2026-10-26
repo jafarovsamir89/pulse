@@ -1,9 +1,10 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { Body, CanActivate, Controller, ExecutionContext, ForbiddenException, Injectable, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { IsIn } from 'class-validator';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { PrismaService } from './prisma.service';
+import { RealtimeAccess, sessionTokenHash } from './realtime-access';
 
 export type AuthedRequest = Request & { userId?: string };
 const COOKIE = 'pulse_session';
@@ -11,7 +12,7 @@ class DevSessionDto { @IsIn(['test-adult-a', 'test-adult-b']) identity!: 'test-a
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly db: PrismaService) {}
+  constructor(private readonly db: PrismaService, private readonly realtime: RealtimeAccess) {}
 
   async issueDevSession(identity: unknown) {
     if (process.env.NODE_ENV === 'production' || process.env.DEV_TEST_AUTH_ENABLED !== 'true') {
@@ -41,7 +42,9 @@ export class AuthService {
 
   async revoke(rawToken: string | undefined) {
     if (!rawToken) return;
-    await this.db.authSession.updateMany({ where: { tokenHash: this.hash(rawToken), revokedAt: null }, data: { revokedAt: new Date() } });
+    const tokenHash = this.hash(rawToken);
+    await this.db.authSession.updateMany({ where: { tokenHash, revokedAt: null }, data: { revokedAt: new Date() } });
+    this.realtime.revokeToken(tokenHash);
   }
 
   token(req: Request) {
@@ -50,7 +53,7 @@ export class AuthService {
     const bearer = req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
     return cookieValue || bearer;
   }
-  private hash(token: string) { return createHash('sha256').update(token).digest('hex'); }
+  private hash(token: string) { return sessionTokenHash(token); }
 }
 
 @Injectable()

@@ -3,6 +3,7 @@ import { IsArray, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class
 import { ApiTags } from '@nestjs/swagger';
 import { PrismaService } from './prisma.service';
 import { AuthedRequest, SessionGuard } from './auth';
+import { RealtimeAccess } from './realtime-access';
 
 class ProfileDto {
   @IsString() @MinLength(2) @MaxLength(32) nickname!: string;
@@ -16,7 +17,7 @@ class ProfileDto {
 @Controller('me')
 @UseGuards(SessionGuard)
 export class ProfileController {
-  constructor(private readonly db: PrismaService) {}
+  constructor(private readonly db: PrismaService, private readonly realtime: RealtimeAccess) {}
 
   @Get()
   async getMe(@Req() req: AuthedRequest) {
@@ -45,6 +46,7 @@ export class ProfileController {
       this.db.activeQueueSlot.deleteMany({ where: { userId: req.userId! } }),
       this.db.activeReservation.deleteMany({ where: { userId: req.userId! } }),
     ]);
+    this.realtime.revokeUser(req.userId!);
     return { status: 'deletion_requested' };
   }
 }

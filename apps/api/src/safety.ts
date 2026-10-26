@@ -5,6 +5,7 @@ import { PrismaService } from './prisma.service';
 import { AuthedRequest, SessionGuard } from './auth';
 import { RedisService } from './redis.service';
 import type { ChatGateway } from './chat.gateway';
+import { RealtimeAccess } from './realtime-access';
 
 class BlockDto { @IsString() targetUserId!: string; }
 class ReportDto {
@@ -17,7 +18,7 @@ class ReviewDto { @IsIn(['dismiss', 'suspend']) action!: string; @IsOptional() @
 
 @Injectable()
 export class SafetyService {
-  constructor(private readonly db: PrismaService, private readonly redis: RedisService) {}
+  constructor(private readonly db: PrismaService, private readonly redis: RedisService, private readonly realtime: RealtimeAccess) {}
 
   async block(userId: string, targetUserId: string) {
     if (!await this.redis.allow(`${userId}:blocks`, 10, 3600)) throw new HttpException('Too many block requests', 429);
@@ -61,7 +62,7 @@ export class SafetyService {
 
   async review(userId: string, reportId: string, input: ReviewDto) {
     await this.requireModerator(userId);
-    return this.db.$transaction(async tx => {
+    const result = await this.db.$transaction(async tx => {
       const report = await tx.report.findUnique({ where: { id: reportId } });
       if (!report || report.status === 'ACTIONED' || report.status === 'DISMISSED') throw new NotFoundException('Open report not found');
       const status = input.action === 'dismiss' ? 'DISMISSED' : 'ACTIONED';
@@ -74,8 +75,10 @@ export class SafetyService {
         await tx.activeReservation.deleteMany({ where: { userId: report.targetUserId } });
         await tx.matchSession.updateMany({ where: { status: 'ACTIVE', members: { some: { userId: report.targetUserId, leftAt: null } } }, data: { status: 'BLOCKED', endedAt: new Date() } });
       }
-      return { id: updated.id, status: updated.status };
+      return { id: updated.id, status: updated.status, targetUserId: report.targetUserId };
     });
+    if (input.action === 'suspend') this.realtime.revokeUser(result.targetUserId);
+    return { id: result.id, status: result.status };
   }
 
   private async requireModerator(userId: string) {
@@ -89,7 +92,7 @@ export class SafetyService {
 @UseGuards(SessionGuard)
 export class SafetyController {
   constructor(private readonly safety: SafetyService, @Inject('CHAT_GATEWAY') private readonly chat: ChatGateway) {}
-  @Post('blocks') async block(@Req() req: AuthedRequest, @Body() body: BlockDto) { const result = await this.safety.block(req.userId!, body.targetUserId); result.sessionIds.forEach(id => this.chat.closeSession(id, 'blocked')); return { ok: result.ok }; }
+  @Post('blocks') async block(@Req() req: AuthedRequest, @Body() body: BlockDto) { const result = await this.safety.block(req.userId!, body.targetUserId); await Promise.all(result.sessionIds.map(id => this.chat.closeSession(id, 'blocked'))); return { ok: result.ok }; }
   @Post('reports') report(@Req() req: AuthedRequest, @Body() body: ReportDto) { return this.safety.report(req.userId!, body); }
   @Get('moderation/reports') queue(@Req() req: AuthedRequest) { return this.safety.moderatorQueue(req.userId!); }
   @Post('moderation/reports/:id') review(@Req() req: AuthedRequest, @Param('id') id: string, @Body() body: ReviewDto) { return this.safety.review(req.userId!, id, body); }

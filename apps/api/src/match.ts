@@ -311,7 +311,7 @@ export class MatchController {
   @Post('offers/:id/accept') accept(@Req() req: AuthedRequest, @Param('id') id: string) { return this.matches.answerOffer(req.userId!, id, true); }
   @Post('offers/:id/decline') decline(@Req() req: AuthedRequest, @Param('id') id: string) { return this.matches.answerOffer(req.userId!, id, false); }
   @Get('sessions/current') session(@Req() req: AuthedRequest) { return this.matches.currentSession(req.userId!); }
-  @Post('sessions/:id/leave') async leave(@Req() req: AuthedRequest, @Param('id') id: string) { const result = await this.matches.leave(req.userId!, id); this.chat.closeSession(id, 'ended'); return result; }
+  @Post('sessions/:id/leave') async leave(@Req() req: AuthedRequest, @Param('id') id: string) { const result = await this.matches.leave(req.userId!, id); await this.chat.closeSession(id, 'ended'); return result; }
   @Post('sessions/:id/contact-vote') vote(@Req() req: AuthedRequest, @Param('id') id: string, @Body() body: VoteDto) { return this.matches.contactVote(req.userId!, id, body.wantsContact); }
   @Post('sessions/:id/messages') message(@Req() req: AuthedRequest, @Param('id') id: string, @Body() body: MessageDto) { return this.matches.sendMessage(req.userId!, id, body); }
   @Post('contacts/:id/messages') contactMessage(@Req() req: AuthedRequest, @Param('id') id: string, @Body() body: MessageDto) { return this.matches.sendContactMessage(req.userId!, id, body); }
