@@ -6,6 +6,7 @@ import { AuthedRequest, SessionGuard } from './auth';
 import { RedisService } from './redis.service';
 import type { ChatGateway } from './chat.gateway';
 import { RealtimeAccess } from './realtime-access';
+import { Prisma } from '@prisma/client';
 
 class BlockDto { @IsString() targetUserId!: string; }
 class ReportDto {
@@ -25,18 +26,31 @@ export class SafetyService {
     if (!targetUserId || targetUserId === userId) throw new BadRequestException('Invalid target');
     const target = await this.db.user.findUnique({ where: { id: targetUserId }, select: { id: true } });
     if (!target) throw new NotFoundException('User not found');
-    const sessions = await this.db.matchSession.findMany({ where: { status: 'ACTIVE', offer: { OR: [{ userAId: userId, userBId: targetUserId }, { userAId: targetUserId, userBId: userId }] } }, select: { id: true } });
-    await this.db.$transaction(async tx => {
-      await tx.userBlock.upsert({ where: { blockerId_blockedId: { blockerId: userId, blockedId: targetUserId } }, update: {}, create: { blockerId: userId, blockedId: targetUserId } });
-      await tx.auditEvent.create({ data: { actorId: userId, subjectId: targetUserId, action: 'user.blocked' } });
-      await tx.matchOffer.updateMany({ where: { status: 'PENDING', OR: [{ userAId: userId, userBId: targetUserId }, { userAId: targetUserId, userBId: userId }] }, data: { status: 'CANCELLED' } });
-      await tx.activeReservation.deleteMany({ where: { userId: { in: [userId, targetUserId] } } });
-      await tx.activeQueueSlot.deleteMany({ where: { userId: { in: [userId, targetUserId] } } });
-      await tx.matchQueue.updateMany({ where: { status: { in: ['WAITING', 'OFFERED'] }, userId: { in: [userId, targetUserId] } }, data: { status: 'CANCELLED' } });
-      await tx.matchSession.updateMany({ where: { status: 'ACTIVE', offer: { OR: [{ userAId: userId, userBId: targetUserId }, { userAId: targetUserId, userBId: userId }] } }, data: { status: 'BLOCKED', endedAt: new Date() } });
-      await tx.contactEdge.updateMany({ where: { OR: [{ userAId: userId, userBId: targetUserId }, { userAId: targetUserId, userBId: userId }] }, data: { status: 'BLOCKED' } });
-    });
-    return { ok: true, sessionIds: sessions.map(session => session.id) };
+    return this.blockPair(userId, targetUserId);
+  }
+
+  private async blockPair(userId: string, targetUserId: string, attempt = 0): Promise<{ ok: boolean; sessionIds: string[] }> {
+    const pair = [{ userAId: userId, userBId: targetUserId }, { userAId: targetUserId, userBId: userId }];
+    try {
+      return await this.db.$transaction(async tx => {
+        await tx.userBlock.upsert({ where: { blockerId_blockedId: { blockerId: userId, blockedId: targetUserId } }, update: {}, create: { blockerId: userId, blockedId: targetUserId } });
+        await tx.auditEvent.create({ data: { actorId: userId, subjectId: targetUserId, action: 'user.blocked' } });
+        const sessions = await tx.matchSession.findMany({ where: { status: 'ACTIVE', offer: { OR: pair } }, select: { id: true } });
+        const cancelled = await tx.matchOffer.updateMany({ where: { status: 'PENDING', OR: pair }, data: { status: 'CANCELLED' } });
+        await tx.activeReservation.deleteMany({ where: { offer: { OR: pair } } });
+        // A waiting slot belongs to the user, not to this pair. Keep it for another candidate.
+        // OFFERED rows belong to this pair only when we actually cancelled its pending offer.
+        if (cancelled.count > 0) {
+          await tx.matchQueue.updateMany({ where: { status: 'OFFERED', userId: { in: [userId, targetUserId] } }, data: { status: 'CANCELLED' } });
+        }
+        await tx.matchSession.updateMany({ where: { status: 'ACTIVE', offer: { OR: pair } }, data: { status: 'BLOCKED', endedAt: new Date() } });
+        await tx.contactEdge.updateMany({ where: { OR: pair }, data: { status: 'BLOCKED' } });
+        return { ok: true, sessionIds: sessions.map(session => session.id) };
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 5000, timeout: 10000 });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034' && attempt < 2) return this.blockPair(userId, targetUserId, attempt + 1);
+      throw error;
+    }
   }
 
   async report(reporterId: string, input: ReportDto) {
