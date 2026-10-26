@@ -51,3 +51,24 @@
 
 - Commit 0c78342 опубликован в codex/project-genesis / PR №2. Проверка ссылок восстановления, идентичности двух AGENTS.md и git diff --cached --check — PASS. Стратегический worktree чистый после push; основной checkout содержит только ожидаемый untracked AGENTS.md.
 - Короткий журнал обновлён с выполненным статусом U05 и следующим P01; не оставлять инструкцию повторно публиковать уже отправленный мандат. Новых app/CI результатов этим шагом не заявляем.
+
+## 2026-10-26 · P01-A · первый инженерный пакет
+
+- Продолжение по вопросу владельца «что теперь директор?»: решение руководителя — начать с ограниченного проверяемого ремонта alpha, затем продолжать P01 и G1.
+- Ветка codex/sprint-1-foundation-text-match / PR №1, исходный SHA 2c37fb9. Родительский Domino не затронут.
+- Новые реальные DB/API/socket регрессии T01/T06/T08 сначала упали: outsider leave дал 201 вместо 403; expired send дал 201 вместо 403; late leave оставил 1 из 2 резервов новой встречи. Evidence: основной checkout .tmp/p01-evidence/red.log.
+- Исправлены membership при leave, TTL при send, удаление резервов строго по offerId. Все 7 интеграционных тестов PASS (.tmp/p01-evidence/green-e2e.log). Синтетические identity; PostgreSQL 127.0.0.1:55479/pulse_test; Redis provider в интеграционных тестах подменён, его надёжность этим не проверена.
+- Усилена проверка test DB URL (точный hostname/path/protocol, без переопределения host через query); добавлены 7 unit cases. .env и токены не выводились.
+- T14 исходный CI 40240424064 подтверждает missing express/types и негенерированный Prisma client. Локальный typecheck до исправлений проходил из-за имеющегося окружения — это не clean-install доказательство. Добавлены express/types в manifest/lockfile и явный db:generate в CI; pnpm add выполнен один раз для каждой зависимости.
+- Следующее действие: закончить pnpm verify, опубликовать ограниченный кодовый пакет и проверить CI именно нового SHA. P01 целиком не закрыт; T02–T05/T07/T09–T13 остаются. После milestone обновить короткий журнал.
+
+### P01-A — результат и точка продолжения
+
+- Кодовый commit a099dda79bcda8bbb7590bf4427ea2e84dfe5546 опубликован в PR №1; PR body обновлён под конечный scope и открытые риски, PR прикреплён к чату. Merge/deploy не выполнялись.
+- Изменены apps/api/src/match.ts, apps/api/package.json, pnpm-lock.yaml, .github/workflows/ci.yml; добавлены session-boundaries.e2e-spec.ts, local-database.ts, local-database.spec.ts; общий E2E использует строгую проверку DB URL.
+- pnpm verify PASS: lint/typecheck, 11 API unit, spike, API/web build. Все 7 E2E PASS. git diff --check PASS. Команда запуска E2E: PULSE_TEST_DATABASE_URL=postgresql://macbookair@127.0.0.1:55479/pulse_test DATABASE_URL=postgresql://macbookair@127.0.0.1:55479/pulse_test REDIS_URL=redis://127.0.0.1:6379 NODE_ENV=test DEV_TEST_AUTH_ENABLED=true pnpm --filter @pulse/api test:e2e. На этапе red добавлялся --testPathPattern=session-boundaries.
+- Чистые CI на a099dda PASS: PR https://github.com/jafarovsamir89/pulse/actions/runs/40413022741 и push https://github.com/jafarovsamir89/pulse/actions/runs/40413016540. Оба включали frozen install, Prisma generate, миграцию изолированной CI service DB, lint/types/tests/E2E и обе сборки. Оба research-tests также PASS.
+- Evidence: .tmp/p01-evidence/{red.log,green-e2e.log,verify.log,ci-watch.log} в основном checkout; журналы/исторический аудит сохраняют выводы независимо от временных логов. Локальный typecheck до исправлений был PASS, clean CI старого SHA FAIL: не смешивать эти результаты.
+- Ограничения: API E2E подменяет Redis allow; web/contracts имеют 0 собственных тестов; bundle 615 kB с предупреждением; гонка между проверкой TTL и записью относится к открытому T05. Публичная готовность не заявлена.
+- Основной checkout после commit содержит только намеренный ?? AGENTS.md. Стратегический PR №2 получает обновление двух журналов; продукт/финансы/архивы не менялись, полный валидатор документов не повторялся.
+- Точное продолжение: T02 — тесты для stale joined socket после logout, expiry, suspension и deletion, затем решение по revocation/private delivery. Далее T03–T05/T07/T09–T13, и только после gates настоящий G1. P01 целиком открыт.
