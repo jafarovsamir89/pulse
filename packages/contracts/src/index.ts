@@ -1,4 +1,5 @@
 import { z } from 'zod';
+export type { GamePhase, GameAction, GameCommand, GameSnapshot } from './game';
 
 export const languageSchema = z.enum(['ru', 'az', 'en']);
 export const queueRequestSchema = z.object({
